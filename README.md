@@ -2,6 +2,10 @@
 
 > **Work in progress.** Do not use this project. It is unpublished,
 > unfinished, and its behavior may change or break at any commit.
+>
+> **Vibe coded.** Agents wrote this code because the project is low-stakes.
+> The author nitpicked the result, and every review finding is fixed, but do
+> not expect the care of hand-written code.
 
 A suite of plugins for [OpenCode](https://opencode.ai), version 1. One
 installable package with two entry points: a server plugin that runs the
@@ -28,6 +32,7 @@ src/
   server.ts              server entry: runs every feature
   tui.ts                 TUI entry: feature toggles from the command palette
   state.ts               toggle protocol (shared JSON file)
+  valueObject/           one validated type per file — the input boundary
   hooks.ts, log.ts       event fan-out, structured logging
   features/              one file per feature, plus the registry
   README.md              plugin installation, configuration, semantics
