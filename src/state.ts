@@ -1,5 +1,4 @@
 import {
-  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -10,14 +9,19 @@ import {
 import { homedir } from "node:os"
 import path from "node:path"
 import type { FeatureId } from "./valueObject/featureId.ts"
-import type { FeatureStates } from "./valueObject/featureStates.ts"
+import type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
+import {
+  newDefaultEssentialsConfig,
+  parseEssentialsConfig,
+  serializeEssentialsConfig,
+} from "./valueObject/essentialsConfig.ts"
+import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import { newAbsolutePath } from "./valueObject/absolutePath.ts"
-import { newFeatureStates } from "./valueObject/featureStates.ts"
 
-export type { FeatureStates } from "./valueObject/featureStates.ts"
+export type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
 
-export type FeatureStatesRead = {
-  states: FeatureStates
+export type EssentialsConfigRead = {
+  config: EssentialsConfig
   error?: unknown
 }
 
@@ -38,65 +42,94 @@ function isMissingFileError(failure: unknown): boolean {
 // A toggle file in a shared or foreign-owned directory lets another user
 // forge the states this process trusts. XDG_DATA_HOME=/tmp is the realistic
 // shape of that risk; the mode and uid of the parent directory reveal it.
-function directoryTrustFailure(directory: string): unknown {
+function validateDirectoryTrust(directory: string): unknown {
   if (process.getuid === undefined) return undefined
   const directoryStats = statSync(directory, { throwIfNoEntry: false })
   if (directoryStats === undefined) return undefined
   const worldOrGroupWritable = (directoryStats.mode & 0o022) !== 0
   if (worldOrGroupWritable) {
-    return new Error(`state directory is writable by others: ${directory}`)
+    return new Error(`StateDirectoryWritable: ${directory}`)
   }
   if (directoryStats.uid !== process.getuid()) {
-    return new Error(`state directory is owned by another user: ${directory}`)
+    return new Error(`StateDirectoryForeignOwner: ${directory}`)
   }
   return undefined
 }
 
-function readStateFile(filePath: string): FeatureStatesRead {
-  const directoryFailure = directoryTrustFailure(path.dirname(filePath))
-  if (directoryFailure) return { states: {}, error: directoryFailure }
+function readStateFile(filePath: string): EssentialsConfigRead {
+  const directoryFailure = validateDirectoryTrust(path.dirname(filePath))
+  if (directoryFailure) {
+    return { config: newDefaultEssentialsConfig(), error: directoryFailure }
+  }
   const fileStats = statSync(filePath, { throwIfNoEntry: false })
-  if (fileStats === undefined) return { states: {} }
+  if (fileStats === undefined) return { config: newDefaultEssentialsConfig() }
   if (!fileStats.isFile()) {
-    return { states: {}, error: new Error("state path is not a file") }
+    return {
+      config: newDefaultEssentialsConfig(),
+      error: new Error(`StatePathNotFile: ${filePath}`),
+    }
   }
   if (fileStats.size > MAX_STATE_FILE_BYTES) {
-    return { states: {}, error: new Error("state file exceeds 64 KiB") }
+    return {
+      config: newDefaultEssentialsConfig(),
+      error: new Error(`StateFileOversized: ${filePath}`),
+    }
   }
   let fileContents: string
   try {
     fileContents = readFileSync(filePath, "utf8")
   } catch (failure) {
-    if (isMissingFileError(failure)) return { states: {} }
-    return { states: {}, error: failure }
+    if (isMissingFileError(failure)) {
+      return { config: newDefaultEssentialsConfig() }
+    }
+    return { config: newDefaultEssentialsConfig(), error: failure }
   }
   let parsedDocument: unknown
   try {
     parsedDocument = JSON.parse(fileContents)
   } catch (failure) {
-    return { states: {}, error: failure }
+    return { config: newDefaultEssentialsConfig(), error: failure }
   }
-  const states = newFeatureStates(parsedDocument)
-  if (states === undefined) {
-    return { states: {}, error: new Error("state file is not a JSON object") }
+  const config = parseEssentialsConfig(parsedDocument)
+  if (config === undefined) {
+    return {
+      config: newDefaultEssentialsConfig(),
+      error: new Error(`StateFileUnrecognizable: ${filePath}`),
+    }
   }
-  return { states }
+  return { config }
 }
 
-export function readFeatureStates(): FeatureStatesRead {
+export function readEssentialsConfig(): EssentialsConfigRead {
   return readStateFile(resolveEssentialsStatePath())
 }
 
-export function isFeatureEnabled(
-  states: FeatureStates,
+export function isFeatureChosen(
+  config: EssentialsConfig,
   featureId: FeatureId,
 ): boolean {
-  return states[featureId] !== false
+  return config.states[featureId] !== false
+}
+
+export function isFeatureEnabled(
+  config: EssentialsConfig,
+  featureId: FeatureId,
+): boolean {
+  if (!config.isEnabled) return false
+  return isFeatureChosen(config, featureId)
+}
+
+export function resolveEffectiveIdleTimeoutMs(
+  config: EssentialsConfig,
+  featureId: FeatureId,
+  fallbackMs: IdleTimeoutMs,
+): IdleTimeoutMs {
+  return config.timeouts[featureId] ?? fallbackMs
 }
 
 function writeStateFileAtomically(filePath: string, payload: string) {
   mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 })
-  const directoryFailure = directoryTrustFailure(path.dirname(filePath))
+  const directoryFailure = validateDirectoryTrust(path.dirname(filePath))
   if (directoryFailure) throw directoryFailure
   // A direct writeFileSync at the final path would let a concurrent reader
   // observe the truncated file; rename replaces it in one step. The "wx"
@@ -107,24 +140,56 @@ function writeStateFileAtomically(filePath: string, payload: string) {
     writeFileSync(temporaryPath, `${payload}\n`, { flag: "wx", mode: 0o600 })
     renameSync(temporaryPath, filePath)
   } finally {
-    if (existsSync(temporaryPath)) rmSync(temporaryPath, { force: true })
+    rmSync(temporaryPath, { force: true })
   }
 }
 
-export function writeFeatureEnabled(featureId: FeatureId, enabled: boolean) {
+function mutateEssentialsConfig(
+  mutate: (config: EssentialsConfig) => void,
+) {
   const filePath = resolveEssentialsStatePath()
-  const statesRead = readStateFile(filePath)
-  if (statesRead.error) {
+  const configRead = readStateFile(filePath)
+  if (configRead.error) {
     const refusal = new Error(
-      `Refusing to overwrite unreadable state file: ${String(statesRead.error)}`,
-      { cause: statesRead.error },
+      `StateWriteRefused: ${String(configRead.error)}`,
+      { cause: configRead.error },
     )
     throw refusal
   }
-  const payload = JSON.stringify(
-    { ...statesRead.states, [featureId]: enabled },
-    null,
-    2,
-  )
+  mutate(configRead.config)
+  const payload = serializeEssentialsConfig(configRead.config)
+  if (payload.length > MAX_STATE_FILE_BYTES) {
+    throw new Error(`StateWriteOversized: ${String(payload.length)} bytes`)
+  }
   writeStateFileAtomically(filePath, payload)
+}
+
+export function writeFeatureEnabled(
+  featureId: FeatureId,
+  enabled: boolean,
+) {
+  mutateEssentialsConfig((config) => {
+    config.states[featureId] = enabled
+  })
+}
+
+export function writeGlobalEnabled(enabled: boolean) {
+  mutateEssentialsConfig((config) => {
+    config.isEnabled = enabled
+  })
+}
+
+export function writeIdleTimeoutMs(
+  featureId: FeatureId,
+  timeout: IdleTimeoutMs,
+) {
+  mutateEssentialsConfig((config) => {
+    config.timeouts[featureId] = timeout
+  })
+}
+
+export function clearIdleTimeoutMs(featureId: FeatureId) {
+  mutateEssentialsConfig((config) => {
+    delete config.timeouts[featureId]
+  })
 }

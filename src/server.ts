@@ -11,7 +11,7 @@ import { combineHooks } from "./hooks.ts"
 import { FEATURES } from "./features/registry.ts"
 import { writeLog } from "./log.ts"
 
-async function validFeatureOptions(
+async function filterValidFeatureOptions(
   input: PluginInput,
   features: unknown,
 ): Promise<Partial<Record<FeatureId, Record<string, unknown>>>> {
@@ -32,7 +32,7 @@ async function validFeatureOptions(
 }
 
 const server: Plugin = async (input, options) => {
-  const perFeature = await validFeatureOptions(input, options?.features)
+  const perFeature = await filterValidFeatureOptions(input, options?.features)
   const featureHooks: Hooks[] = []
   for (const feature of FEATURES) {
     featureHooks.push(

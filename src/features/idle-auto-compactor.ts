@@ -1,26 +1,27 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import type { FeatureContext, SuiteFeature } from "./feature.ts"
 import { writeLog } from "../log.ts"
+import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
-import type { FeatureStates } from "../valueObject/featureStates.ts"
-import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import {
+  DEFAULT_IDLE_TIMEOUT_MS,
+  type IdleTimeoutMs,
+  MAX_TIMER_DELAY_MS,
+  newIdleTimeoutMs,
+} from "../valueObject/idleTimeoutMs.ts"
 import type { ModelRef } from "../valueObject/modelRef.ts"
 import type { SessionId } from "../valueObject/sessionId.ts"
-import { newIdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import { newModelRef } from "../valueObject/modelRef.ts"
 import { newSessionId } from "../valueObject/sessionId.ts"
-import { isFeatureEnabled, readFeatureStates } from "../state.ts"
+import {
+  resolveEffectiveIdleTimeoutMs,
+  isFeatureEnabled,
+  readEssentialsConfig,
+} from "../state.ts"
 
 const idleAutoCompactorId: FeatureId =
   "idle-auto-compactor" as FeatureId
-
-const DEFAULT_IDLE_TIMEOUT_MS: IdleTimeoutMs =
-  (30 * 60 * 1000) as IdleTimeoutMs
-
-// Node silently clamps setTimeout delays above 2^31-1 ms to 1 ms. No type
-// absorbs that stdlib contract, so resolveIdleTimeoutMs clamps explicitly.
-const MAX_TIMER_DELAY_MS: IdleTimeoutMs =
-  (2 ** 31 - 1) as IdleTimeoutMs
 
 const COMPACTION_REQUEST_DEADLINE_MS = 60 * 1000
 
@@ -43,15 +44,17 @@ type SessionState = {
 
 type IdleTracker = {
   client: PluginInput["client"]
-  idleTimeoutMs: IdleTimeoutMs
+  defaultIdleTimeoutMs: IdleTimeoutMs
   sessions: Map<SessionId, SessionState>
-  cachedFeatureStates: FeatureStates
+  cachedConfig: EssentialsConfig
   isDisposed: boolean
 }
 
 type CompactorDecision = {
   isEnabled: boolean
+  idleTimeoutMs: IdleTimeoutMs
   readFailure?: unknown
+  clampedFrom?: IdleTimeoutMs
 }
 
 function readLastUserMessage(
@@ -132,27 +135,51 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
   }
 }
 
-function readCompactorDecision(tracker: IdleTracker): CompactorDecision {
-  const statesRead = readFeatureStates()
-  if (statesRead.error) {
-    const lastKnownEnabled = isFeatureEnabled(
-      tracker.cachedFeatureStates,
-      idleAutoCompactorId,
-    )
-    return { isEnabled: lastKnownEnabled, readFailure: statesRead.error }
+function resolveCompactorDecision(tracker: IdleTracker): CompactorDecision {
+  const configRead = readEssentialsConfig()
+  if (configRead.error) {
+    return compactorDecisionBuilder(tracker, tracker.cachedConfig, configRead.error)
   }
-  tracker.cachedFeatureStates = statesRead.states
-  return {
-    isEnabled: isFeatureEnabled(statesRead.states, idleAutoCompactorId),
-  }
+  tracker.cachedConfig = configRead.config
+  return compactorDecisionBuilder(tracker, configRead.config)
 }
 
-async function logFeatureStatesReadFailure(
+function compactorDecisionBuilder(
+  tracker: IdleTracker,
+  config: EssentialsConfig,
+  readFailure?: unknown,
+): CompactorDecision {
+  const wantedTimeoutMs = resolveEffectiveIdleTimeoutMs(
+    config,
+    idleAutoCompactorId,
+    tracker.defaultIdleTimeoutMs,
+  )
+  const isClamped = wantedTimeoutMs > MAX_TIMER_DELAY_MS
+  const decision: CompactorDecision = {
+    isEnabled: isFeatureEnabled(config, idleAutoCompactorId),
+    idleTimeoutMs: isClamped ? MAX_TIMER_DELAY_MS : wantedTimeoutMs,
+    readFailure: readFailure,
+  }
+  if (isClamped) decision.clampedFrom = wantedTimeoutMs
+  return decision
+}
+
+async function logEssentialsConfigReadFailure(
   tracker: IdleTracker,
   readFailure: unknown,
 ) {
-  await writeLog(tracker.client, "warn", "FeatureStatesReadFailed", {
+  await writeLog(tracker.client, "warn", "EssentialsConfigReadFailed", {
     error: String(readFailure),
+  })
+}
+
+async function logIdleTimeoutClamped(
+  tracker: IdleTracker,
+  clampedFrom: IdleTimeoutMs,
+) {
+  await writeLog(tracker.client, "warn", "IdleTimeoutMsClamped", {
+    clampedFrom: String(clampedFrom),
+    clampedMs: MAX_TIMER_DELAY_MS,
   })
 }
 
@@ -185,15 +212,18 @@ function cancelIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
 async function armIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
   const state = ensureSessionState(tracker, sessionId)
   if (state.timer || state.isSettledThisIdlePeriod) return
-  const decision = readCompactorDecision(tracker)
+  const decision = resolveCompactorDecision(tracker)
   if (decision.isEnabled) {
     state.timer = setTimeout(
       () => void startCompaction(tracker, sessionId),
-      tracker.idleTimeoutMs,
+      decision.idleTimeoutMs,
     )
   }
   if (decision.readFailure) {
-    await logFeatureStatesReadFailure(tracker, decision.readFailure)
+    await logEssentialsConfigReadFailure(tracker, decision.readFailure)
+  }
+  if (decision.clampedFrom !== undefined) {
+    await logIdleTimeoutClamped(tracker, decision.clampedFrom)
   }
 }
 
@@ -201,11 +231,12 @@ async function startCompaction(tracker: IdleTracker, sessionId: SessionId) {
   const state = ensureSessionState(tracker, sessionId)
   state.timer = undefined
   if (state.isSettledThisIdlePeriod) return
-  const decision = readCompactorDecision(tracker)
-  state.isSettledThisIdlePeriod = decision.isEnabled
-  if (!decision.isEnabled) return
+  const decision = resolveCompactorDecision(tracker)
+  const shouldSettlePeriod = decision.isEnabled
+  state.isSettledThisIdlePeriod = shouldSettlePeriod
+  if (!shouldSettlePeriod) return
   if (decision.readFailure) {
-    await logFeatureStatesReadFailure(tracker, decision.readFailure)
+    await logEssentialsConfigReadFailure(tracker, decision.readFailure)
   }
   await compactSession(tracker, sessionId)
 }
@@ -260,15 +291,15 @@ async function logRejectedSessionId(
 }
 
 async function buildHooks(context: FeatureContext): Promise<Hooks> {
-  const idleTimeoutMs = await resolveIdleTimeoutMs(
+  const defaultIdleTimeoutMs = await resolveIdleTimeoutMs(
     context.client,
     context.options,
   )
   const tracker: IdleTracker = {
     client: context.client,
-    idleTimeoutMs,
+    defaultIdleTimeoutMs,
     sessions: new Map(),
-    cachedFeatureStates: {},
+    cachedConfig: newDefaultEssentialsConfig(),
     isDisposed: false,
   }
 
@@ -327,5 +358,6 @@ export const idleAutoCompactorFeature: SuiteFeature = {
   title: "Idle Auto Compactor",
   description:
     "Compacts a session after it stays continuously idle. Default 30 minutes.",
+  hasAdjustableIdleTimeout: true,
   buildHooks,
 }

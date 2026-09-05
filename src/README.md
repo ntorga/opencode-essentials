@@ -1,8 +1,9 @@
 # opencode-essentials
 
 One plugin package, two entry points, several features. The server entry
-runs the features. The TUI companion gives the user a palette command to
-enable or disable each feature at runtime.
+runs the features. The TUI companion gives the user a command to switch
+everything off at once, enable or disable each feature at runtime, and
+tune a feature's idle timeout.
 
 ```
 src/
@@ -79,9 +80,17 @@ host loads `tui.json`. Restart OpenCode after changing either file.
 
 Toggling does not need a restart. Type `/essentials` in the prompt, or
 open the command palette (`ctrl+p` by default) and run **Toggle Essentials
-Features**. Move to a feature and press Enter. The choice is written to
-`$XDG_DATA_HOME/opencode/essentials.json` (default
-`~/.local/share/opencode/essentials.json`) and takes effect at each
+Features**. The dialog offers three kinds of row:
+
+- **All features** — the master switch. Turning it off stops every feature
+  at once and keeps each per-feature choice untouched.
+- **One row per feature** — enable or disable that feature. A feature
+  stays off while the master switch is off.
+- **One row per adjustable timeout** — opens a submenu of preset idle
+  timeouts plus a custom value in minutes.
+
+Choices are written to `$XDG_DATA_HOME/opencode/essentials.json` (default
+`~/.local/share/opencode/essentials.json`) and take effect at each
 feature's next decision point. The server half reads that file from its own
 machine. A `opencode serve` running on another machine would not see
 toggles made by a local TUI. This suite assumes a local server, which is
@@ -101,11 +110,30 @@ The plugin logs `InvalidIdleTimeoutMs` when it falls back. A value above
 Node's timer ceiling (`2^31-1` ms, about 24.8 days) is clamped to it and
 logged as `IdleTimeoutMsClamped`.
 
-Toggle state lives in `$XDG_DATA_HOME/opencode/essentials.json`. If the
-server cannot read it, the feature keeps its last known decision and logs
-`FeatureStatesReadFailed`. The plugin refuses to overwrite a state file it
-cannot parse, so a corrupt file never silently resets stored toggles. The
-TUI shows an error toast when a write is refused.
+A timeout set through `/essentials` overrides the option; the option is the
+default until the user chooses. Precedence, highest first: state-file
+setting, plugin option, built-in default. The dialog shows the state-file
+layer only: a footer reads "(stored)" when the user chose, or "(default)"
+otherwise. The plugin option is invisible to the TUI, so "(default)" covers
+both the built-in 30 minutes and any `idleTimeoutMs` from `opencode.json`.
+
+State file (`$XDG_DATA_HOME/opencode/essentials.json`), current shape:
+
+```json
+{
+  "version": 1,
+  "enabled": true,
+  "features": { "idle-auto-compactor": false },
+  "settings": { "idle-auto-compactor": { "idleTimeoutMs": 1800000 } }
+}
+```
+
+A pre-version file — a flat feature-id-to-boolean map — is read as legacy
+and rewritten in this shape on the first write. If the server cannot read
+the file, the feature keeps its last known decision and logs
+`EssentialsConfigReadFailed`. The plugin refuses to overwrite a state file
+it cannot parse, so a corrupt file never silently resets stored choices.
+The TUI shows an error toast when a write is refused.
 
 ## Semantics in detail
 
@@ -134,7 +162,7 @@ TUI shows an error toast when a write is refused.
 - OpenCode 1.18.x, verified against 1.18.18. The server half uses the
   `session.status` event and the `session.summarize` API. The TUI half
   uses the TUI plugin surface (`keymap.registerLayer`, `ui.dialog`,
-  `ui.DialogSelect`, `ui.toast`).
+  `ui.DialogSelect`, `ui.DialogPrompt`, `ui.toast`).
 - No runtime dependencies. Both entries import types and Node built-ins
   only. No `package.json` needed in `.opencode/`.
 

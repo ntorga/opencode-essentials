@@ -5,9 +5,12 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { Event, UserMessage } from "@opencode-ai/sdk"
 import type { PluginInput } from "@opencode-ai/plugin"
+import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
 import {
   resolveEssentialsStatePath,
   writeFeatureEnabled,
+  writeGlobalEnabled,
+  writeIdleTimeoutMs,
 } from "../state.ts"
 import { idleAutoCompactorFeature } from "./idle-auto-compactor.ts"
 
@@ -15,6 +18,8 @@ import { idleAutoCompactorFeature } from "./idle-auto-compactor.ts"
 // requires each file to own its preconditions, even if it duplicates code.
 
 const SHORT_IDLE_MS = 40
+const SHORT_IDLE_TIMEOUT_MS = SHORT_IDLE_MS as IdleTimeoutMs
+const OVER_CEILING_TIMEOUT_MS = 2 ** 32 as IdleTimeoutMs
 const LONGER_THAN_IDLE_MS = 120
 
 let dataHomeTemp = ""
@@ -421,6 +426,47 @@ describe("idle-auto-compactor", () => {
     await hooks.dispose?.()
   })
 
+  it("does not arm timers while the global switch is off", async () => {
+    const fake = fakeClient()
+    writeGlobalEnabled(false)
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    await hooks.dispose?.()
+  })
+
+  it("logs a clamp when a stored timeout exceeds the timer ceiling", async () => {
+    const fake = fakeClient()
+    writeIdleTimeoutMs(idleAutoCompactorFeature.id, OVER_CEILING_TIMEOUT_MS)
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+
+    assert.ok(fake.logMessages.includes("IdleTimeoutMsClamped"))
+    assert.equal(fake.summarizeCalls.length, 0)
+    await hooks.dispose?.()
+  })
+
+  it("prefers the configured timeout over the plugin option", async () => {
+    const fake = fakeClient()
+    writeIdleTimeoutMs(
+      idleAutoCompactorFeature.id,
+      SHORT_IDLE_TIMEOUT_MS,
+    )
+    const hooks = await startCompactor(fake, {
+      idleTimeoutMs: 10 * LONGER_THAN_IDLE_MS,
+    })
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 1)
+    await hooks.dispose?.()
+  })
+
   it("a timer armed before disabling never compacts", async () => {
     const fake = fakeClient()
     const hooks = await startCompactor(fake)
@@ -457,7 +503,7 @@ describe("idle-auto-compactor", () => {
     const hooks = await startCompactor(fake)
 
     await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
-    assert.equal(fake.logMessages.includes("FeatureStatesReadFailed"), false)
+    assert.equal(fake.logMessages.includes("EssentialsConfigReadFailed"), false)
 
     try {
       chmodSync(resolveEssentialsStatePath(), 0o000)
@@ -468,7 +514,7 @@ describe("idle-auto-compactor", () => {
     }
 
     assert.equal(fake.summarizeCalls.length, 0)
-    assert.ok(fake.logMessages.includes("FeatureStatesReadFailed"))
+    assert.ok(fake.logMessages.includes("EssentialsConfigReadFailed"))
     await hooks.dispose?.()
   })
 

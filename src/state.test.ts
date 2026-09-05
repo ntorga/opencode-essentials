@@ -8,11 +8,17 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { FeatureId } from "./valueObject/featureId.ts"
 import { newFeatureId } from "./valueObject/featureId.ts"
+import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import { newIdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import {
+  resolveEffectiveIdleTimeoutMs,
   isFeatureEnabled,
-  readFeatureStates,
+  readEssentialsConfig,
   resolveEssentialsStatePath,
   writeFeatureEnabled,
+  writeGlobalEnabled,
+  writeIdleTimeoutMs,
+  clearIdleTimeoutMs,
 } from "./state.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
@@ -20,8 +26,19 @@ import {
 
 function trustedFeatureId(id: string): FeatureId {
   const validated = newFeatureId(id)
-  if (!validated) throw new Error(`test fixture id is invalid: ${id}`)
+  if (!validated) throw new Error(`TestFixtureFeatureIdInvalid: ${id}`)
   return validated
+}
+
+function trustedTimeout(ms: number): IdleTimeoutMs {
+  const timeout = newIdleTimeoutMs(ms)
+  if (!timeout) throw new Error(`TestFixtureTimeoutInvalid: ${ms}`)
+  return timeout
+}
+
+function writeRawState(contents: string) {
+  mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+  writeFileSync(resolveEssentialsStatePath(), contents)
 }
 
 let dataHomeTemp = ""
@@ -34,19 +51,18 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  // "" and unset behave the same: resolveEssentialsStatePath falls back to
-  // ~/.local/share for both.
   process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
-describe("essentials state file", () => {
+describe("essentials config file", () => {
   it("returns defaults with no error when no file exists", () => {
-    const read = readFeatureStates()
-    assert.equal(read.error, undefined)
-    assert.deepEqual({ ...read.states }, {})
+    const configRead = readEssentialsConfig()
+    assert.equal(configRead.error, undefined)
+    assert.equal(configRead.config.isEnabled, true)
+    assert.deepEqual({ ...configRead.config.states }, {})
     assert.equal(
-      isFeatureEnabled(read.states, trustedFeatureId("any-feature")),
+      isFeatureEnabled(configRead.config, trustedFeatureId("any")),
       true,
     )
   })
@@ -54,67 +70,92 @@ describe("essentials state file", () => {
   it("round-trips toggles through the file", () => {
     writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), false)
     writeFeatureEnabled(trustedFeatureId("exec-guard"), true)
-    const states = readFeatureStates().states
-    assert.equal(
-      states[trustedFeatureId("idle-auto-compactor")],
-      false,
-    )
-    assert.equal(states[trustedFeatureId("exec-guard")], true)
-    assert.equal(
-      isFeatureEnabled(states, trustedFeatureId("idle-auto-compactor")),
-      false,
-    )
+    const config = readEssentialsConfig().config
+    assert.equal(config.states[trustedFeatureId("idle-auto-compactor")], false)
+    assert.equal(config.states[trustedFeatureId("exec-guard")], true)
   })
 
-  it("merges with existing entries", () => {
+  it("keeps the global flag across feature writes", () => {
+    writeGlobalEnabled(false)
     writeFeatureEnabled(trustedFeatureId("first"), false)
-    writeFeatureEnabled(trustedFeatureId("second"), false)
-    writeFeatureEnabled(trustedFeatureId("first"), true)
-    assert.deepEqual({ ...readFeatureStates().states }, {
-      first: true,
-      second: false,
-    })
+    const config = readEssentialsConfig().config
+    assert.equal(config.isEnabled, false)
+    assert.deepEqual({ ...config.states }, { first: false })
+  })
+
+  it("migrates a legacy flat file on the first write", () => {
+    writeRawState('{"idle-auto-compactor": false}')
+    writeGlobalEnabled(false)
+    const persisted = JSON.parse(
+      readFileSync(resolveEssentialsStatePath(), "utf8"),
+    )
+    assert.equal(persisted.version, 1)
+    assert.equal(persisted.enabled, false)
+    assert.deepEqual(persisted.features, { "idle-auto-compactor": false })
+  })
+
+  it("clears a stored timeout without touching other settings", () => {
+    const compactorId = trustedFeatureId("idle-auto-compactor")
+    writeIdleTimeoutMs(compactorId, trustedTimeout(60_000))
+    writeFeatureEnabled(compactorId, false)
+    clearIdleTimeoutMs(compactorId)
+    const config = readEssentialsConfig().config
+    assert.deepEqual({ ...config.timeouts }, {})
+    assert.equal(config.states[compactorId], false)
+  })
+
+  it("round-trips the idle timeout per feature", () => {
+    const compactorId = trustedFeatureId("idle-auto-compactor")
+    writeIdleTimeoutMs(compactorId, trustedTimeout(60_000))
+    const config = readEssentialsConfig().config
+    assert.equal(config.timeouts[compactorId], 60_000)
+    assert.equal(
+      resolveEffectiveIdleTimeoutMs(config, compactorId, trustedTimeout(999)),
+      60_000,
+    )
+    assert.equal(
+      resolveEffectiveIdleTimeoutMs(
+        config,
+        trustedFeatureId("other"),
+        trustedTimeout(999),
+      ),
+      999,
+    )
   })
 
   const unreadableContents: Array<[string, string]> = [
     ["corrupt text", "not json {{{"],
     ["an array", "[1, 2]"],
     ["a bare string", '"hello"'],
+    ["an unknown version", '{"version": 2}'],
+    ["a non-boolean flag", '{"version": 1, "enabled": "yes"}'],
   ]
 
   for (const [label, content] of unreadableContents) {
     it(`reports an error when the file holds ${label}`, () => {
-      mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
-      writeFileSync(resolveEssentialsStatePath(), content)
-      const read = readFeatureStates()
-      assert.ok(read.error)
-      assert.deepEqual({ ...read.states }, {})
+      writeRawState(content)
+      const configRead = readEssentialsConfig()
+      assert.ok(configRead.error)
+      assert.equal(configRead.config.isEnabled, true)
+      assert.deepEqual({ ...configRead.config.states }, {})
     })
   }
 
   it("reports an error when the file is unreadable", () => {
-    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
-    writeFileSync(resolveEssentialsStatePath(), '{"idle-auto-compactor": false}')
+    writeRawState('{"idle-auto-compactor": false}')
     chmodSync(resolveEssentialsStatePath(), 0o000)
-    const read = readFeatureStates()
-    chmodSync(resolveEssentialsStatePath(), 0o644)
-    assert.ok(read.error)
+    try {
+      assert.ok(readEssentialsConfig().error)
+    } finally {
+      chmodSync(resolveEssentialsStatePath(), 0o644)
+    }
   })
 
-  const entryFilters: Array<[string, Record<string, boolean>]> = [
-    ['{"good": false, "stringy": "yes", "count": 3}', { good: false }],
-    ['{"only": true}', { only: true }],
-    ['{"with space": true, "good": true}', { good: true }],
-    ["{}", {}],
-  ]
-
-  for (const [content, expected] of entryFilters) {
-    it(`keeps only boolean entries from ${content}`, () => {
-      mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
-      writeFileSync(resolveEssentialsStatePath(), content)
-      assert.deepEqual({ ...readFeatureStates().states }, expected)
-    })
-  }
+  it("ignores junk entries in a legacy flat file", () => {
+    writeRawState('{"good": false, "stringy": "yes", "with space": true}')
+    const config = readEssentialsConfig().config
+    assert.deepEqual({ ...config.states }, { good: false })
+  })
 
   it("leaves no temporary file behind after a write", () => {
     writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), false)
@@ -124,10 +165,13 @@ describe("essentials state file", () => {
   })
 
   it("refuses to overwrite a corrupt state file", () => {
-    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
-    writeFileSync(resolveEssentialsStatePath(), "not json {{{")
+    writeRawState("not json {{{")
     assert.throws(() =>
       writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), true),
+    )
+    assert.throws(() => writeGlobalEnabled(false))
+    assert.throws(() =>
+      writeIdleTimeoutMs(trustedFeatureId("x"), trustedTimeout(1000)),
     )
     assert.equal(
       readFileSync(resolveEssentialsStatePath(), "utf8"),
@@ -137,25 +181,19 @@ describe("essentials state file", () => {
 
   it("reports an error when the state path is a directory", () => {
     mkdirSync(resolveEssentialsStatePath(), { recursive: true })
-    const read = readFeatureStates()
-    assert.ok(read.error)
-    assert.deepEqual({ ...read.states }, {})
+    assert.ok(readEssentialsConfig().error)
   })
 
   it("reports an error when the state file is oversized", () => {
-    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
-    writeFileSync(
-      resolveEssentialsStatePath(),
-      JSON.stringify({ padding: "x".repeat(70 * 1024) }),
-    )
-    assert.ok(readFeatureStates().error)
+    writeRawState(JSON.stringify({ padding: "x".repeat(70 * 1024) }))
+    assert.ok(readEssentialsConfig().error)
   })
 
   it("reports an error when the state directory is writable by others", () => {
     mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
     chmodSync(path.dirname(resolveEssentialsStatePath()), 0o777)
     try {
-      assert.ok(readFeatureStates().error)
+      assert.ok(readEssentialsConfig().error)
     } finally {
       chmodSync(path.dirname(resolveEssentialsStatePath()), 0o700)
     }

@@ -10,5 +10,6 @@ export type SuiteFeature = {
   id: FeatureId
   title: string
   description: string
+  hasAdjustableIdleTimeout?: boolean
   buildHooks: (context: FeatureContext) => Promise<Hooks>
 }
