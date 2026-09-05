@@ -1,15 +1,23 @@
 import type { Hooks } from "@opencode-ai/plugin"
 
+type HookName = "event" | "chat.message" | "dispose"
+
+function handlersFor<Name extends HookName>(
+  hooksList: Hooks[],
+  name: Name,
+): NonNullable<Hooks[Name]>[] {
+  const handlers: NonNullable<Hooks[Name]>[] = []
+  for (const hooks of hooksList) {
+    const handler = hooks[name]
+    if (handler) handlers.push(handler)
+  }
+  return handlers
+}
+
 export function combineHooks(hooksList: Hooks[]): Hooks {
-  const eventHandlers = hooksList.flatMap((hooks) =>
-    hooks.event ? [hooks.event] : [],
-  )
-  const messageHandlers = hooksList.flatMap((hooks) =>
-    hooks["chat.message"] ? [hooks["chat.message"]] : [],
-  )
-  const disposers = hooksList.flatMap((hooks) =>
-    hooks.dispose ? [hooks.dispose] : [],
-  )
+  const eventHandlers = handlersFor(hooksList, "event")
+  const messageHandlers = handlersFor(hooksList, "chat.message")
+  const disposers = handlersFor(hooksList, "dispose")
 
   return {
     event: async (input) => {
