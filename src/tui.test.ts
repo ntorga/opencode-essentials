@@ -1,10 +1,15 @@
 import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import {
+  mkdirSync, mkdtempSync, rmSync, writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import { readFeatureStates } from "./state.ts"
+import {
+  readFeatureStates,
+  resolveEssentialsStatePath,
+} from "./state.ts"
 import { FEATURES } from "./features/registry.ts"
 import tuiEntry from "./tui.ts"
 
@@ -129,6 +134,40 @@ describe("essentials tui companion", () => {
     fake.openedDialogs[0]?.onSelect({ value: "not-a-feature" })
 
     assert.equal(fake.toastMessages.length, 0)
+    assert.equal(fake.openedDialogs.length, 1)
+  })
+
+  it("toasts a write failure and leaves the dialog closed", async () => {
+    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+    writeFileSync(resolveEssentialsStatePath(), "not json {{{")
+    const fake = fakeTuiApi()
+    await tuiEntry.tui(fake.api, undefined, { id: "test" } as never)
+
+    fake.registeredCommands[0]?.run()
+    const opened = fake.openedDialogs.length
+    fake.openedDialogs[0]?.onSelect({ value: FEATURES[0].id })
+
+    assert.ok(
+      fake.toastMessages.some((message) =>
+        message.startsWith("FeatureToggleWriteFailed"),
+      ),
+    )
+    assert.equal(fake.openedDialogs.length, opened)
+  })
+
+  it("warns when the state file cannot be read", async () => {
+    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+    writeFileSync(resolveEssentialsStatePath(), "not json {{{")
+    const fake = fakeTuiApi()
+    await tuiEntry.tui(fake.api, undefined, { id: "test" } as never)
+
+    fake.registeredCommands[0]?.run()
+
+    assert.ok(
+      fake.toastMessages.some((message) =>
+        message.startsWith("FeatureStatesReadFailed"),
+      ),
+    )
     assert.equal(fake.openedDialogs.length, 1)
   })
 })

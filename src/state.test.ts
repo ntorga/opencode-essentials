@@ -2,7 +2,7 @@ import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import {
   chmodSync, mkdirSync, mkdtempSync,
-  readdirSync, rmSync, writeFileSync,
+  readdirSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -36,7 +36,7 @@ describe("essentials state file", () => {
   it("returns defaults with no error when no file exists", () => {
     const read = readFeatureStates()
     assert.equal(read.error, undefined)
-    assert.deepEqual(read.states, {})
+    assert.deepEqual({ ...read.states }, {})
     assert.equal(isFeatureEnabled(read.states, "any-feature"), true)
   })
 
@@ -53,7 +53,7 @@ describe("essentials state file", () => {
     writeFeatureEnabled("first", false)
     writeFeatureEnabled("second", false)
     writeFeatureEnabled("first", true)
-    assert.deepEqual(readFeatureStates().states, {
+    assert.deepEqual({ ...readFeatureStates().states }, {
       first: true,
       second: false,
     })
@@ -71,7 +71,7 @@ describe("essentials state file", () => {
       writeFileSync(resolveEssentialsStatePath(), content)
       const read = readFeatureStates()
       assert.ok(read.error)
-      assert.deepEqual(read.states, {})
+      assert.deepEqual({ ...read.states }, {})
     })
   }
 
@@ -94,7 +94,7 @@ describe("essentials state file", () => {
     it(`keeps only boolean entries from ${content}`, () => {
       mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
       writeFileSync(resolveEssentialsStatePath(), content)
-      assert.deepEqual(readFeatureStates().states, expected)
+      assert.deepEqual({ ...readFeatureStates().states }, expected)
     })
   }
 
@@ -103,5 +103,41 @@ describe("essentials state file", () => {
     const leftovers = readdirSync(path.dirname(resolveEssentialsStatePath()))
       .filter((name) => name.endsWith(".tmp"))
     assert.deepEqual(leftovers, [])
+  })
+
+  it("refuses to overwrite a corrupt state file", () => {
+    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+    writeFileSync(resolveEssentialsStatePath(), "not json {{{")
+    assert.throws(() => writeFeatureEnabled("idle-auto-compactor", true))
+    assert.equal(
+      readFileSync(resolveEssentialsStatePath(), "utf8"),
+      "not json {{{",
+    )
+  })
+
+  it("reports an error when the state path is a directory", () => {
+    mkdirSync(resolveEssentialsStatePath(), { recursive: true })
+    const read = readFeatureStates()
+    assert.ok(read.error)
+    assert.deepEqual({ ...read.states }, {})
+  })
+
+  it("reports an error when the state file is oversized", () => {
+    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+    writeFileSync(
+      resolveEssentialsStatePath(),
+      JSON.stringify({ padding: "x".repeat(70 * 1024) }),
+    )
+    assert.ok(readFeatureStates().error)
+  })
+
+  it("reports an error when the state directory is writable by others", () => {
+    mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
+    chmodSync(path.dirname(resolveEssentialsStatePath()), 0o777)
+    try {
+      assert.ok(readFeatureStates().error)
+    } finally {
+      chmodSync(path.dirname(resolveEssentialsStatePath()), 0o700)
+    }
   })
 })
