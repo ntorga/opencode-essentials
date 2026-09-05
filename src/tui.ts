@@ -80,6 +80,7 @@ const tui: TuiPlugin = async (api) => {
         title: "Toggle Essentials Features",
         category: "Essentials",
         namespace: "palette",
+        slashName: "essentials",
         run() {
           showFeatureDialog(api)
         },

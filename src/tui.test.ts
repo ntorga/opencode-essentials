@@ -23,14 +23,18 @@ type DialogProps = {
 }
 
 function fakeTuiApi() {
-  const registeredCommands: Array<{ name: string; run: () => void }> = []
+  const registeredCommands: Array<{
+    name: string
+    slashName?: unknown
+    run: () => void
+  }> = []
   const openedDialogs: DialogProps[] = []
   const toastMessages: string[] = []
 
   const api = {
     keymap: {
       registerLayer: (layer: {
-        commands: Array<{ name: string; run: () => void }>
+        commands: typeof registeredCommands
       }) => {
         registeredCommands.push(...layer.commands)
       },
@@ -86,6 +90,16 @@ describe("essentials tui companion", () => {
     assert.deepEqual(
       fake.registeredCommands.map((command) => command.name),
       ["essentials.features"],
+    )
+  })
+
+  it("maps the command to /essentials", async () => {
+    const fake = fakeTuiApi()
+    await tuiEntry.tui(fake.api, undefined, { id: "test" } as never)
+
+    assert.equal(
+      fake.registeredCommands[0]?.slashName,
+      "essentials",
     )
   })
 
