@@ -9,8 +9,12 @@ import {
 } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
+import type { FeatureId } from "./valueObject/featureId.ts"
+import type { FeatureStates } from "./valueObject/featureStates.ts"
+import { newAbsolutePath } from "./valueObject/absolutePath.ts"
+import { newFeatureStates } from "./valueObject/featureStates.ts"
 
-export type FeatureStates = Record<string, boolean>
+export type { FeatureStates } from "./valueObject/featureStates.ts"
 
 export type FeatureStatesRead = {
   states: FeatureStates
@@ -20,9 +24,9 @@ export type FeatureStatesRead = {
 const MAX_STATE_FILE_BYTES = 64 * 1024
 
 export function resolveEssentialsStatePath(): string {
-  const localShare = path.join(homedir(), ".local", "share")
-  const fromEnv = process.env["XDG_DATA_HOME"]
-  const dataHome = fromEnv && path.isAbsolute(fromEnv) ? fromEnv : localShare
+  const fallbackDataHome = path.join(homedir(), ".local", "share")
+  const configuredDataHome = newAbsolutePath(process.env["XDG_DATA_HOME"])
+  const dataHome = configuredDataHome ?? fallbackDataHome
   return path.join(dataHome, "opencode", "essentials.json")
 }
 
@@ -36,54 +40,43 @@ function isMissingFileError(failure: unknown): boolean {
 // shape of that risk; the mode and uid of the parent directory reveal it.
 function directoryTrustFailure(directory: string): unknown {
   if (process.getuid === undefined) return undefined
-  const stats = statSync(directory, { throwIfNoEntry: false })
-  if (stats === undefined) return undefined
-  const worldOrGroupWritable = (stats.mode & 0o022) !== 0
+  const directoryStats = statSync(directory, { throwIfNoEntry: false })
+  if (directoryStats === undefined) return undefined
+  const worldOrGroupWritable = (directoryStats.mode & 0o022) !== 0
   if (worldOrGroupWritable) {
     return new Error(`state directory is writable by others: ${directory}`)
   }
-  if (stats.uid !== process.getuid()) {
+  if (directoryStats.uid !== process.getuid()) {
     return new Error(`state directory is owned by another user: ${directory}`)
   }
   return undefined
 }
 
-function booleanStatesOf(parsed: unknown): FeatureStates | undefined {
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return undefined
-  }
-  const states: FeatureStates = Object.create(null)
-  for (const [featureID, value] of Object.entries(parsed)) {
-    if (typeof value === "boolean") states[featureID] = value
-  }
-  return states
-}
-
 function readStateFile(filePath: string): FeatureStatesRead {
   const directoryFailure = directoryTrustFailure(path.dirname(filePath))
   if (directoryFailure) return { states: {}, error: directoryFailure }
-  const stats = statSync(filePath, { throwIfNoEntry: false })
-  if (stats === undefined) return { states: {} }
-  if (!stats.isFile()) {
+  const fileStats = statSync(filePath, { throwIfNoEntry: false })
+  if (fileStats === undefined) return { states: {} }
+  if (!fileStats.isFile()) {
     return { states: {}, error: new Error("state path is not a file") }
   }
-  if (stats.size > MAX_STATE_FILE_BYTES) {
+  if (fileStats.size > MAX_STATE_FILE_BYTES) {
     return { states: {}, error: new Error("state file exceeds 64 KiB") }
   }
-  let raw: string
+  let fileContents: string
   try {
-    raw = readFileSync(filePath, "utf8")
+    fileContents = readFileSync(filePath, "utf8")
   } catch (failure) {
     if (isMissingFileError(failure)) return { states: {} }
     return { states: {}, error: failure }
   }
-  let parsed: unknown
+  let parsedDocument: unknown
   try {
-    parsed = JSON.parse(raw)
+    parsedDocument = JSON.parse(fileContents)
   } catch (failure) {
     return { states: {}, error: failure }
   }
-  const states = booleanStatesOf(parsed)
+  const states = newFeatureStates(parsedDocument)
   if (states === undefined) {
     return { states: {}, error: new Error("state file is not a JSON object") }
   }
@@ -96,9 +89,9 @@ export function readFeatureStates(): FeatureStatesRead {
 
 export function isFeatureEnabled(
   states: FeatureStates,
-  featureID: string,
+  featureId: FeatureId,
 ): boolean {
-  return states[featureID] !== false
+  return states[featureId] !== false
 }
 
 function writeStateFileAtomically(filePath: string, payload: string) {
@@ -118,18 +111,18 @@ function writeStateFileAtomically(filePath: string, payload: string) {
   }
 }
 
-export function writeFeatureEnabled(featureID: string, enabled: boolean) {
+export function writeFeatureEnabled(featureId: FeatureId, enabled: boolean) {
   const filePath = resolveEssentialsStatePath()
-  const read = readStateFile(filePath)
-  if (read.error) {
+  const statesRead = readStateFile(filePath)
+  if (statesRead.error) {
     const refusal = new Error(
-      `Refusing to overwrite unreadable state file: ${String(read.error)}`,
-      { cause: read.error },
+      `Refusing to overwrite unreadable state file: ${String(statesRead.error)}`,
+      { cause: statesRead.error },
     )
     throw refusal
   }
   const payload = JSON.stringify(
-    { ...read.states, [featureID]: enabled },
+    { ...statesRead.states, [featureId]: enabled },
     null,
     2,
   )

@@ -1,4 +1,5 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import type { FeatureId } from "../valueObject/featureId.ts"
 
 export type FeatureContext = {
   client: PluginInput["client"]
@@ -6,7 +7,7 @@ export type FeatureContext = {
 }
 
 export type SuiteFeature = {
-  id: string
+  id: FeatureId
   title: string
   description: string
   buildHooks: (context: FeatureContext) => Promise<Hooks>

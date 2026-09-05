@@ -7,15 +7,15 @@ const MAX_LOG_VALUE_CHARS = 500
 // characters stops forged log lines and terminal escapes. No type absorbs
 // that contract; the sink sanitizes.
 function printableText(value: unknown): string {
-  const flattened = String(value)
-  const stripped = flattened.replace(/[\u0000-\u001F\u007F]/g, " ")
+  const stringified = String(value)
+  const stripped = stringified.replace(/[\u0000-\u001F\u007F]/g, " ")
   return stripped.slice(0, MAX_LOG_VALUE_CHARS)
 }
 
 function printableExtras(extra: Record<string, unknown>) {
   const sanitized: Record<string, string> = {}
-  for (const [key, value] of Object.entries(extra)) {
-    sanitized[key] = printableText(value)
+  for (const [valueKey, valueContent] of Object.entries(extra)) {
+    sanitized[valueKey] = printableText(valueContent)
   }
   return sanitized
 }

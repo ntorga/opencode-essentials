@@ -6,6 +6,8 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import type { FeatureId } from "./valueObject/featureId.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
 import {
   isFeatureEnabled,
   readFeatureStates,
@@ -15,6 +17,12 @@ import {
 
 // Note: Setup/teardown are intentionally inline — test independence
 // requires each file to own its preconditions, even if it duplicates code.
+
+function trustedFeatureId(id: string): FeatureId {
+  const validated = newFeatureId(id)
+  if (!validated) throw new Error(`test fixture id is invalid: ${id}`)
+  return validated
+}
 
 let dataHomeTemp = ""
 let previousDataHome: string | undefined
@@ -37,22 +45,31 @@ describe("essentials state file", () => {
     const read = readFeatureStates()
     assert.equal(read.error, undefined)
     assert.deepEqual({ ...read.states }, {})
-    assert.equal(isFeatureEnabled(read.states, "any-feature"), true)
+    assert.equal(
+      isFeatureEnabled(read.states, trustedFeatureId("any-feature")),
+      true,
+    )
   })
 
   it("round-trips toggles through the file", () => {
-    writeFeatureEnabled("idle-auto-compactor", false)
-    writeFeatureEnabled("exec-guard", true)
+    writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), false)
+    writeFeatureEnabled(trustedFeatureId("exec-guard"), true)
     const states = readFeatureStates().states
-    assert.equal(states["idle-auto-compactor"], false)
-    assert.equal(states["exec-guard"], true)
-    assert.equal(isFeatureEnabled(states, "idle-auto-compactor"), false)
+    assert.equal(
+      states[trustedFeatureId("idle-auto-compactor")],
+      false,
+    )
+    assert.equal(states[trustedFeatureId("exec-guard")], true)
+    assert.equal(
+      isFeatureEnabled(states, trustedFeatureId("idle-auto-compactor")),
+      false,
+    )
   })
 
   it("merges with existing entries", () => {
-    writeFeatureEnabled("first", false)
-    writeFeatureEnabled("second", false)
-    writeFeatureEnabled("first", true)
+    writeFeatureEnabled(trustedFeatureId("first"), false)
+    writeFeatureEnabled(trustedFeatureId("second"), false)
+    writeFeatureEnabled(trustedFeatureId("first"), true)
     assert.deepEqual({ ...readFeatureStates().states }, {
       first: true,
       second: false,
@@ -87,6 +104,7 @@ describe("essentials state file", () => {
   const entryFilters: Array<[string, Record<string, boolean>]> = [
     ['{"good": false, "stringy": "yes", "count": 3}', { good: false }],
     ['{"only": true}', { only: true }],
+    ['{"with space": true, "good": true}', { good: true }],
     ["{}", {}],
   ]
 
@@ -99,7 +117,7 @@ describe("essentials state file", () => {
   }
 
   it("leaves no temporary file behind after a write", () => {
-    writeFeatureEnabled("idle-auto-compactor", false)
+    writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), false)
     const leftovers = readdirSync(path.dirname(resolveEssentialsStatePath()))
       .filter((name) => name.endsWith(".tmp"))
     assert.deepEqual(leftovers, [])
@@ -108,7 +126,9 @@ describe("essentials state file", () => {
   it("refuses to overwrite a corrupt state file", () => {
     mkdirSync(path.dirname(resolveEssentialsStatePath()), { recursive: true })
     writeFileSync(resolveEssentialsStatePath(), "not json {{{")
-    assert.throws(() => writeFeatureEnabled("idle-auto-compactor", true))
+    assert.throws(() =>
+      writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), true),
+    )
     assert.equal(
       readFileSync(resolveEssentialsStatePath(), "utf8"),
       "not json {{{",

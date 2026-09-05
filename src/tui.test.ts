@@ -107,22 +107,22 @@ describe("essentials tui companion", () => {
   it("flips the state file, toasts, and re-renders on select", async () => {
     const fake = fakeTuiApi()
     await tuiEntry.tui(fake.api, undefined, { id: "test" } as never)
-    const featureID = FEATURES[0].id
+    const featureId = FEATURES[0].id
 
     fake.registeredCommands[0]?.run()
-    fake.openedDialogs[0]?.onSelect({ value: featureID })
+    fake.openedDialogs[0]?.onSelect({ value: featureId })
 
-    assert.equal(readFeatureStates().states[featureID], false)
+    assert.equal(readFeatureStates().states[featureId], false)
     assert.equal(fake.toastMessages.length, 1)
     assert.match(fake.toastMessages[0], /disabled$/)
 
     const reopened = fake.openedDialogs[1]
     assert.ok(reopened)
-    const flipped = reopened.options.find((option) => option.value === featureID)
+    const flipped = reopened.options.find((option) => option.value === featureId)
     assert.equal(flipped?.footer, "disabled")
 
-    reopened.onSelect({ value: featureID })
-    assert.equal(readFeatureStates().states[featureID], true)
+    reopened.onSelect({ value: featureId })
+    assert.equal(readFeatureStates().states[featureId], true)
     assert.match(fake.toastMessages[1], /enabled$/)
   })
 

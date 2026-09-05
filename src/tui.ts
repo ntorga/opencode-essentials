@@ -5,6 +5,7 @@ import type {
 } from "@opencode-ai/plugin/tui"
 import type { SuiteFeature } from "./features/feature.ts"
 import { FEATURES } from "./features/registry.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
 import {
   isFeatureEnabled,
   readFeatureStates,
@@ -16,12 +17,12 @@ function formatEnabledState(enabled: boolean): string {
 }
 
 function toggleFeature(api: TuiPluginApi, feature: SuiteFeature) {
-  const desired = !isFeatureEnabled(
+  const shouldEnable = !isFeatureEnabled(
     readFeatureStates().states,
     feature.id,
   )
   try {
-    writeFeatureEnabled(feature.id, desired)
+    writeFeatureEnabled(feature.id, shouldEnable)
   } catch (failure) {
     api.ui.toast({
       variant: "error",
@@ -30,24 +31,28 @@ function toggleFeature(api: TuiPluginApi, feature: SuiteFeature) {
     return
   }
   api.ui.toast({
-    variant: desired ? "success" : "info",
-    message: `${feature.title} ${formatEnabledState(desired)}`,
+    variant: shouldEnable ? "success" : "info",
+    message: `${feature.title} ${formatEnabledState(shouldEnable)}`,
   })
   showFeatureDialog(api)
 }
 
-function selectFeature(api: TuiPluginApi, featureID: unknown) {
-  const feature = FEATURES.find((candidate) => candidate.id === featureID)
+function selectFeature(api: TuiPluginApi, featureValue: unknown) {
+  const featureId = newFeatureId(featureValue)
+  if (!featureId) return
+  const feature = FEATURES.find(
+    (listedFeature) => listedFeature.id === featureId,
+  )
   if (!feature) return
   toggleFeature(api, feature)
 }
 
 function showFeatureDialog(api: TuiPluginApi) {
-  const read = readFeatureStates()
-  if (read.error) {
+  const statesRead = readFeatureStates()
+  if (statesRead.error) {
     api.ui.toast({
       variant: "error",
-      message: `FeatureStatesReadFailed: ${String(read.error)}`,
+      message: `FeatureStatesReadFailed: ${String(statesRead.error)}`,
     })
   }
   api.ui.dialog.replace(() =>
@@ -58,10 +63,11 @@ function showFeatureDialog(api: TuiPluginApi) {
         value: feature.id,
         description: feature.description,
         footer: formatEnabledState(
-          isFeatureEnabled(read.states, feature.id),
+          isFeatureEnabled(statesRead.states, feature.id),
         ),
       })),
-      onSelect: (item) => selectFeature(api, item.value),
+      onSelect: (selectedOption) =>
+        selectFeature(api, selectedOption.value),
     }),
   )
 }

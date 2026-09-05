@@ -37,24 +37,24 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-function sessionStatusEvent(sessionID: string, status: "idle" | "busy"): Event {
+function sessionStatusEvent(sessionId: string, status: "idle" | "busy"): Event {
   return {
     type: "session.status",
-    properties: { sessionID, status: { type: status } },
+    properties: { sessionID: sessionId, status: { type: status } },
   } as unknown as Event
 }
 
-function sessionDeletedEvent(sessionID: string): Event {
+function sessionDeletedEvent(sessionId: string): Event {
   return {
     type: "session.deleted",
-    properties: { info: { id: sessionID } },
+    properties: { info: { id: sessionId } },
   } as unknown as Event
 }
 
-function userMessage(sessionID: string): UserMessage {
+function userMessage(sessionId: string): UserMessage {
   return {
     id: "msg-test",
-    sessionID,
+    sessionID: sessionId,
     role: "user",
     time: { created: Date.now() },
     agent: "build",
@@ -65,6 +65,7 @@ function userMessage(sessionID: string): UserMessage {
 function fakeClient(behavior: {
   userMessageCount?: number
   modellessUserMessages?: boolean
+  malformedUserModel?: boolean
   modellessLastUserOnly?: boolean
   messagesDelayMs?: number
   summarizeDelayMs?: number
@@ -72,16 +73,18 @@ function fakeClient(behavior: {
   summarizeThrows?: boolean
 } = {}) {
   const summarizeCalls: Array<{
-    sessionID: string
-    providerID: string
-    modelID: string
+    sessionId: string
+    providerId: string
+    modelId: string
   }> = []
   const requestSignals: unknown[] = []
   const logMessages: string[] = []
   const messageRecords: unknown[] = []
   const userMessageCount = behavior.userMessageCount ?? 1
   const lastUserMessageInfo: Record<string, unknown> = { role: "user" }
-  if (!behavior.modellessUserMessages) {
+  if (behavior.malformedUserModel) {
+    lastUserMessageInfo.model = { providerID: "bad id", modelID: "m" }
+  } else if (!behavior.modellessUserMessages) {
     lastUserMessageInfo.model = {
       providerID: "fake",
       modelID: "fake-model",
@@ -112,9 +115,9 @@ function fakeClient(behavior: {
           body: { providerID: string; modelID: string }
         }) => {
           summarizeCalls.push({
-            sessionID: request.path.id,
-            providerID: request.body.providerID,
-            modelID: request.body.modelID,
+            sessionId: request.path.id,
+            providerId: request.body.providerID,
+            modelId: request.body.modelID,
           })
           if (behavior.summarizeDelayMs) {
             await sleep(behavior.summarizeDelayMs)
@@ -158,9 +161,9 @@ describe("idle-auto-compactor", () => {
 
     assert.equal(fake.summarizeCalls.length, 1)
     assert.deepEqual(fake.summarizeCalls[0], {
-      sessionID: "s1",
-      providerID: "fake",
-      modelID: "fake-model",
+      sessionId: "s1",
+      providerId: "fake",
+      modelId: "fake-model",
     })
     await hooks.dispose?.()
   })
@@ -296,7 +299,7 @@ describe("idle-auto-compactor", () => {
     await sleep(LONGER_THAN_IDLE_MS)
 
     assert.deepEqual(
-      fake.summarizeCalls.map((call) => call.sessionID),
+      fake.summarizeCalls.map((call) => call.sessionId),
       ["s2"],
     )
     await hooks.dispose?.()
@@ -362,7 +365,7 @@ describe("idle-auto-compactor", () => {
       event: {
         type: "session.status",
         properties: {
-          sessionID: "s1",
+          sessionId: "s1",
           status: { type: "retry", attempt: 1, message: "backing off", next: 0 },
         },
       } as unknown as Event,
@@ -519,15 +522,27 @@ describe("idle-auto-compactor", () => {
     await hooks.dispose?.()
   })
 
-  const rejectedSessionIDs = ["..", "ses/../other", "with space", "é"]
+  it("warns and skips on a malformed model in the last message", async () => {
+    const fake = fakeClient({ malformedUserModel: true })
+    const hooks = await startCompactor(fake)
 
-  for (const sessionID of rejectedSessionIDs) {
-    const label = JSON.stringify(sessionID)
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionModelRejected"))
+    await hooks.dispose?.()
+  })
+
+  const rejectedSessionIds = ["..", "ses/../other", "with space", "é"]
+
+  for (const sessionId of rejectedSessionIds) {
+    const label = JSON.stringify(sessionId)
     it(`a session id shaped like ${label} is ignored`, async () => {
       const fake = fakeClient()
       const hooks = await startCompactor(fake)
 
-      await hooks.event?.({ event: sessionStatusEvent(sessionID, "idle") })
+      await hooks.event?.({ event: sessionStatusEvent(sessionId, "idle") })
       await sleep(LONGER_THAN_IDLE_MS)
 
       assert.equal(fake.summarizeCalls.length, 0)

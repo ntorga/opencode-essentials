@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import type { Event } from "@opencode-ai/sdk"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { newFeatureId } from "./valueObject/featureId.ts"
 import { writeFeatureEnabled } from "./state.ts"
 import suite from "./server.ts"
 
@@ -98,7 +99,9 @@ describe("essentials server entry", () => {
 
   it("obeys a toggle written in the state file without a restart", async () => {
     const fake = fakeClient()
-    writeFeatureEnabled("idle-auto-compactor", false)
+    const featureId = newFeatureId("idle-auto-compactor")
+    assert.ok(featureId)
+    writeFeatureEnabled(featureId, false)
     const hooks = await suite.server(
       { client: fake.client } as unknown as PluginInput,
       { features: { "idle-auto-compactor": { idleTimeoutMs: SHORT_IDLE_MS } } },

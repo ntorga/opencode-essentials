@@ -7,8 +7,8 @@ function handlersFor<Name extends HookName>(
   name: Name,
 ): NonNullable<Hooks[Name]>[] {
   const handlers: NonNullable<Hooks[Name]>[] = []
-  for (const hooks of hooksList) {
-    const handler = hooks[name]
+  for (const hookSet of hooksList) {
+    const handler = hookSet[name]
     if (handler) handlers.push(handler)
   }
   return handlers

@@ -4,29 +4,28 @@ import type {
   PluginInput,
   PluginModule,
 } from "@opencode-ai/plugin"
+import type { FeatureId } from "./valueObject/featureId.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
+import { isRecord } from "./valueObject/util.ts"
 import { combineHooks } from "./hooks.ts"
 import { FEATURES } from "./features/registry.ts"
 import { writeLog } from "./log.ts"
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
 async function validFeatureOptions(
   input: PluginInput,
   features: unknown,
-): Promise<Record<string, Record<string, unknown>>> {
-  const perFeature: Record<string, Record<string, unknown>> = Object.create(
-    null,
-  )
+): Promise<Partial<Record<FeatureId, Record<string, unknown>>>> {
+  const perFeature: Partial<Record<FeatureId, Record<string, unknown>>> =
+    Object.create(null)
   if (!isRecord(features)) return perFeature
-  for (const [featureID, value] of Object.entries(features)) {
-    if (isRecord(value)) {
-      perFeature[featureID] = value
+  for (const [entryKey, entryValue] of Object.entries(features)) {
+    const featureId = newFeatureId(entryKey)
+    if (featureId && isRecord(entryValue)) {
+      perFeature[featureId] = entryValue
       continue
     }
     await writeLog(input.client, "warn", "InvalidFeatureOptions", {
-      featureID,
+      featureId: entryKey,
     })
   }
   return perFeature
