@@ -9,6 +9,7 @@ src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
   state.ts     shared state file protocol      — written by tui, read by server
+  valueObject/ one validated type per file     — the input trust boundary
   hooks.ts     fans one hook out to all features
   log.ts       structured logging through client.app.log
   features/

@@ -12,6 +12,7 @@ Compacts an OpenCode session automatically after the session stays continuously 
 2. `src/features/registry.ts` — lists the `idle-auto-compactor` `SuiteFeature` for both entry points.
 3. `src/features/idle-auto-compactor.ts` — the feature. Subscribes to `session.status` and `session.deleted`. An idle status arms a one-shot timer; a busy status cancels it; a genuine `chat.message` reopens the idle period. When the timer fires, it reads the session messages, picks the last user message's model, and calls `session.summarize`. The state machine absorbs the compaction's own busy/idle echoes.
 4. `src/state.ts` — the toggle protocol. The server reads `$XDG_DATA_HOME/opencode/essentials.json` at each decision point to gate the feature.
+5. `src/valueObject/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `New*` constructor before use.
 5. `src/tui.ts` — TUI companion, registered in `tui.json` (the TUI host does
    not read `opencode.json`). The palette command `essentials.features`
    opens a `DialogSelect` to toggle the feature at runtime; the choice is
