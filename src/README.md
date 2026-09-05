@@ -77,9 +77,9 @@ Paths resolve relative to the declaring config file. The two hosts read
 separate config files: the server host loads `opencode.json` and the TUI
 host loads `tui.json`. Restart OpenCode after changing either file.
 
-Toggling does not need a restart. Open the command palette
-(`ctrl+p` by default), run **Toggle Essentials Features**, move to a
-feature, and press Enter. The choice is written to
+Toggling does not need a restart. Type `/essentials` in the prompt, or
+open the command palette (`ctrl+p` by default) and run **Toggle Essentials
+Features**. Move to a feature and press Enter. The choice is written to
 `$XDG_DATA_HOME/opencode/essentials.json` (default
 `~/.local/share/opencode/essentials.json`) and takes effect at each
 feature's next decision point. The server half reads that file from its own
@@ -156,8 +156,9 @@ npm run typecheck # tsc --noEmit
 3. Stay away for the timeout. The session compacts once: a summary turn
    appears and the context indicator drops.
 4. Send a message, wait again. The session compacts once more.
-5. Open the command palette and run **Toggle Essentials Features**.
-   Disable the compactor. Repeat step 2-3: nothing compacts. The file
-   `~/.local/share/opencode/essentials.json` records the choice.
+5. Type `/essentials`, or open the command palette and run **Toggle
+   Essentials Features**. Disable the compactor. Repeat step 2-3: nothing
+   compacts. The file `~/.local/share/opencode/essentials.json` records the
+   choice.
 6. Re-enable and let an idle period elapse: compaction resumes without a
    restart.

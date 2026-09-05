@@ -30,7 +30,7 @@ The roadmap lives in `TODO.md` (not published).
 ```
 src/
   server.ts              server entry: runs every feature
-  tui.ts                 TUI entry: feature toggles from the command palette
+  tui.ts                 TUI entry: feature toggles via /essentials
   state.ts               toggle protocol (shared JSON file)
   valueObject/           one validated type per file — the input boundary
   hooks.ts, log.ts       event fan-out, structured logging
