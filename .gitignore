@@ -5,3 +5,4 @@ opencode.json
 .ignore
 node_modules/
 TODO.md
+tmp/
