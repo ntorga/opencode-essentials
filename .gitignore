@@ -1,0 +1,7 @@
+.agents/
+.memory/
+opencode.json
+.claude/
+.ignore
+node_modules/
+TODO.md
