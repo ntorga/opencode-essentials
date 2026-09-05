@@ -65,6 +65,8 @@ function userMessage(sessionID: string): UserMessage {
 function fakeClient(behavior: {
   userMessageCount?: number
   modellessUserMessages?: boolean
+  modellessLastUserOnly?: boolean
+  messagesDelayMs?: number
   summarizeDelayMs?: number
   summarizeError?: unknown
   summarizeThrows?: boolean
@@ -74,6 +76,7 @@ function fakeClient(behavior: {
     providerID: string
     modelID: string
   }> = []
+  const requestSignals: unknown[] = []
   const logMessages: string[] = []
   const messageRecords: unknown[] = []
   const userMessageCount = behavior.userMessageCount ?? 1
@@ -85,15 +88,25 @@ function fakeClient(behavior: {
     }
   }
   for (let position = 0; position < userMessageCount; position++) {
-    messageRecords.push({ info: lastUserMessageInfo })
+    messageRecords.push({ info: { ...lastUserMessageInfo } })
+  }
+  if (behavior.modellessLastUserOnly) {
+    messageRecords.push({ info: { role: "user" } })
   }
 
   return {
     summarizeCalls,
+    requestSignals,
     logMessages,
     client: {
       session: {
-        messages: async () => ({ data: messageRecords }),
+        messages: async (request: { signal?: unknown }) => {
+          requestSignals.push(request.signal)
+          if (behavior.messagesDelayMs) {
+            await sleep(behavior.messagesDelayMs)
+          }
+          return { data: messageRecords }
+        },
         summarize: async (request: {
           path: { id: string }
           body: { providerID: string; modelID: string }
@@ -443,15 +456,85 @@ describe("idle-auto-compactor", () => {
     await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
     assert.equal(fake.logMessages.includes("FeatureStatesReadFailed"), false)
 
-    chmodSync(resolveEssentialsStatePath(), 0o000)
-    await hooks.event?.({ event: sessionStatusEvent("s2", "idle") })
-    await sleep(LONGER_THAN_IDLE_MS)
-    chmodSync(resolveEssentialsStatePath(), 0o644)
+    try {
+      chmodSync(resolveEssentialsStatePath(), 0o000)
+      await hooks.event?.({ event: sessionStatusEvent("s2", "idle") })
+      await sleep(LONGER_THAN_IDLE_MS)
+    } finally {
+      chmodSync(resolveEssentialsStatePath(), 0o644)
+    }
 
     assert.equal(fake.summarizeCalls.length, 0)
     assert.ok(fake.logMessages.includes("FeatureStatesReadFailed"))
     await hooks.dispose?.()
   })
+
+  it("two idle events in the same tick arm one timer", async () => {
+    const fake = fakeClient()
+    const hooks = await startCompactor(fake)
+
+    const first = hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    const second = hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await Promise.all([first, second])
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 1)
+    await hooks.dispose?.()
+  })
+
+  it("compaction requests carry an abort signal deadline", async () => {
+    const fake = fakeClient()
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.requestSignals.length, 1)
+    assert.ok(fake.requestSignals[0] instanceof AbortSignal)
+    await hooks.dispose?.()
+  })
+
+  it("dispose during a slow message read prevents the summarize call", async () => {
+    const fake = fakeClient({ messagesDelayMs: SHORT_IDLE_MS + 60 })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(SHORT_IDLE_MS + 10)
+    await hooks.dispose?.()
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionSkippedDisposed"))
+  })
+
+  it("skips when the last user message has no model", async () => {
+    const fake = fakeClient({ modellessLastUserOnly: true })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionSkippedNoModel"))
+    await hooks.dispose?.()
+  })
+
+  const rejectedSessionIDs = ["..", "ses/../other", "with space", "é"]
+
+  for (const sessionID of rejectedSessionIDs) {
+    const label = JSON.stringify(sessionID)
+    it(`a session id shaped like ${label} is ignored`, async () => {
+      const fake = fakeClient()
+      const hooks = await startCompactor(fake)
+
+      await hooks.event?.({ event: sessionStatusEvent(sessionID, "idle") })
+      await sleep(LONGER_THAN_IDLE_MS)
+
+      assert.equal(fake.summarizeCalls.length, 0)
+      assert.equal(fake.requestSignals.length, 0)
+      await hooks.dispose?.()
+    })
+  }
 
   const invalidTimeoutValues: Array<[string, unknown]> = [
     ["a string", "900000"],

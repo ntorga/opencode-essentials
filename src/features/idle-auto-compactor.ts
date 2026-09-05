@@ -8,10 +8,17 @@ const IDLE_AUTO_COMPACTOR_ID = "idle-auto-compactor"
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000
 
-// Node clamps setTimeout delays above 2^31-1 ms to 1 ms. The only structure
-// that can express that ceiling is this constant, so the config value is
-// clamped to it rather than passed through.
+// Node silently clamps setTimeout delays above 2^31-1 ms to 1 ms. No type
+// absorbs that stdlib contract, so resolveIdleTimeoutMs clamps explicitly.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
+
+const COMPACTION_REQUEST_DEADLINE_MS = 60 * 1000
+
+// OpenCode session ids are ASCII tokens; anything else must not reach a URL
+// path segment. The SDK percent-encodes "/" but not ".", and Request
+// normalizes "..", so a raw segment could redirect the call to a sibling
+// endpoint. No type absorbs this external contract; the guard enforces it.
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
 
 type IdleTimer = ReturnType<typeof setTimeout>
 
@@ -20,13 +27,18 @@ type SessionModel = {
   modelID: string
 }
 
+type MessageInfo = {
+  role: string
+  model?: Partial<SessionModel>
+}
+
 type SessionState = {
   timer: IdleTimer | undefined
   // OpenCode runs compaction as a prompt turn, which emits its own
-  // session.status busy/idle pair. The events carry no origin, so no code
-  // can tell that pair from real activity; settling the period when the
-  // timer fires absorbs the echo. Only chat.message, which fires solely on
-  // genuine prompts, reopens the period.
+  // session.status busy/idle pair. The events carry no origin field, so no
+  // name or type can tell that pair from real activity; settling the period
+  // when the timer fires absorbs the echo. Only chat.message, which fires
+  // solely on genuine prompts, reopens the period.
   isSettledThisIdlePeriod: boolean
 }
 
@@ -35,62 +47,57 @@ type IdleTracker = {
   idleTimeoutMs: number
   sessions: Map<string, SessionState>
   cachedFeatureStates: FeatureStates
+  isDisposed: boolean
 }
 
-function isPositiveDurationMs(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
+type CompactorDecision = {
+  isEnabled: boolean
+  readFailure?: unknown
 }
 
-function readLastUserModel(
-  messages: Array<{
-    info: { role: string; model?: Partial<SessionModel> }
-  }>,
-): SessionModel | undefined {
+function lastUserMessageOf(
+  messages: Array<{ info: MessageInfo }>,
+): MessageInfo | undefined {
   for (let position = messages.length - 1; position >= 0; position--) {
-    const info = messages[position].info
-    if (info.role !== "user") continue
-    const providerID = info.model?.providerID
-    const modelID = info.model?.modelID
-    if (providerID && modelID) return { providerID, modelID }
-    return undefined
+    if (messages[position].info.role === "user") {
+      return messages[position].info
+    }
   }
   return undefined
 }
 
-async function isCompactorEnabled(tracker: IdleTracker): Promise<boolean> {
-  const read = readFeatureStates()
-  if (read.error) {
-    await writeLog(tracker.client, "warn", "FeatureStatesReadFailed", {
-      error: String(read.error),
-    })
-    return isFeatureEnabled(tracker.cachedFeatureStates, IDLE_AUTO_COMPACTOR_ID)
-  }
-  tracker.cachedFeatureStates = read.states
-  return isFeatureEnabled(read.states, IDLE_AUTO_COMPACTOR_ID)
+function modelFromUserMessage(
+  userMessage: MessageInfo,
+): SessionModel | undefined {
+  const providerID = userMessage.model?.providerID
+  const modelID = userMessage.model?.modelID
+  if (providerID && modelID) return { providerID, modelID }
+  return undefined
 }
 
 async function compactSession(tracker: IdleTracker, sessionID: string) {
   try {
     const sessionMessages = await tracker.client.session.messages({
       path: { id: sessionID },
+      signal: AbortSignal.timeout(COMPACTION_REQUEST_DEADLINE_MS),
     })
     if (sessionMessages.error || !sessionMessages.data) {
-      await writeLog(
-        tracker.client,
-        "warn",
-        "IdleCompactionMessagesReadFailed",
-        {
-          sessionID,
-          error: JSON.stringify(
-            sessionMessages.error ?? "missing response body",
-          ),
-        },
-      )
+      await writeLog(tracker.client, "warn", "IdleCompactionMessagesReadFailed", {
+        sessionID,
+        error: JSON.stringify(sessionMessages.error ?? "missing response body"),
+      })
       return
     }
-    const model = readLastUserModel(sessionMessages.data)
+    const lastUser = lastUserMessageOf(sessionMessages.data)
+    const model = lastUser ? modelFromUserMessage(lastUser) : undefined
     if (!model) {
       await writeLog(tracker.client, "debug", "IdleCompactionSkippedNoModel", {
+        sessionID,
+      })
+      return
+    }
+    if (tracker.isDisposed) {
+      await writeLog(tracker.client, "debug", "IdleCompactionSkippedDisposed", {
         sessionID,
       })
       return
@@ -98,6 +105,7 @@ async function compactSession(tracker: IdleTracker, sessionID: string) {
     const summarizeResult = await tracker.client.session.summarize({
       path: { id: sessionID },
       body: { providerID: model.providerID, modelID: model.modelID },
+      signal: AbortSignal.timeout(COMPACTION_REQUEST_DEADLINE_MS),
     })
     if (summarizeResult.error) {
       await writeLog(tracker.client, "warn", "IdleCompactionRejected", {
@@ -117,6 +125,28 @@ async function compactSession(tracker: IdleTracker, sessionID: string) {
   }
 }
 
+function readCompactorDecision(tracker: IdleTracker): CompactorDecision {
+  const read = readFeatureStates()
+  if (read.error) {
+    const cached = isFeatureEnabled(
+      tracker.cachedFeatureStates,
+      IDLE_AUTO_COMPACTOR_ID,
+    )
+    return { isEnabled: cached, readFailure: read.error }
+  }
+  tracker.cachedFeatureStates = read.states
+  return { isEnabled: isFeatureEnabled(read.states, IDLE_AUTO_COMPACTOR_ID) }
+}
+
+async function logFeatureStatesReadFailure(
+  tracker: IdleTracker,
+  readFailure: unknown,
+) {
+  await writeLog(tracker.client, "warn", "FeatureStatesReadFailed", {
+    error: String(readFailure),
+  })
+}
+
 function ensureSessionState(
   tracker: IdleTracker,
   sessionID: string,
@@ -131,24 +161,6 @@ function ensureSessionState(
   return fresh
 }
 
-async function startCompaction(tracker: IdleTracker, sessionID: string) {
-  const state = ensureSessionState(tracker, sessionID)
-  state.timer = undefined
-  if (!(await isCompactorEnabled(tracker))) return
-  state.isSettledThisIdlePeriod = true
-  void compactSession(tracker, sessionID)
-}
-
-async function armIdleTimer(tracker: IdleTracker, sessionID: string) {
-  const state = ensureSessionState(tracker, sessionID)
-  if (state.timer || state.isSettledThisIdlePeriod) return
-  if (!(await isCompactorEnabled(tracker))) return
-  state.timer = setTimeout(
-    () => void startCompaction(tracker, sessionID),
-    tracker.idleTimeoutMs,
-  )
-}
-
 function cancelIdleTimer(tracker: IdleTracker, sessionID: string) {
   const state = tracker.sessions.get(sessionID)
   if (!state) return
@@ -156,16 +168,56 @@ function cancelIdleTimer(tracker: IdleTracker, sessionID: string) {
   state.timer = undefined
 }
 
+// The guard and the timer assignment must not span an await: two idle events
+// for one session could otherwise both pass the guard and both arm, and the
+// second arm would orphan the first timer. The state-file read is
+// synchronous, so the window cannot open; only the failure log awaits, and
+// it runs after the assignment.
+async function armIdleTimer(tracker: IdleTracker, sessionID: string) {
+  const state = ensureSessionState(tracker, sessionID)
+  if (state.timer || state.isSettledThisIdlePeriod) return
+  const decision = readCompactorDecision(tracker)
+  if (decision.isEnabled) {
+    state.timer = setTimeout(
+      () => void startCompaction(tracker, sessionID),
+      tracker.idleTimeoutMs,
+    )
+  }
+  if (decision.readFailure) {
+    await logFeatureStatesReadFailure(tracker, decision.readFailure)
+  }
+}
+
+async function startCompaction(tracker: IdleTracker, sessionID: string) {
+  const state = ensureSessionState(tracker, sessionID)
+  state.timer = undefined
+  if (state.isSettledThisIdlePeriod) return
+  const decision = readCompactorDecision(tracker)
+  state.isSettledThisIdlePeriod = decision.isEnabled
+  if (!decision.isEnabled) return
+  if (decision.readFailure) {
+    await logFeatureStatesReadFailure(tracker, decision.readFailure)
+  }
+  await compactSession(tracker, sessionID)
+}
+
+function forgetSession(tracker: IdleTracker, sessionID: string) {
+  if (!tracker.sessions.has(sessionID)) return
+  cancelIdleTimer(tracker, sessionID)
+  tracker.sessions.delete(sessionID)
+}
+
 function reopenIdlePeriod(tracker: IdleTracker, sessionID: string) {
   cancelIdleTimer(tracker, sessionID)
   ensureSessionState(tracker, sessionID).isSettledThisIdlePeriod = false
 }
 
-function forgetSession(tracker: IdleTracker, sessionID: string) {
-  const state = tracker.sessions.get(sessionID)
-  if (!state) return
-  if (state.timer) clearTimeout(state.timer)
-  tracker.sessions.delete(sessionID)
+function isUsableSessionID(value: unknown): value is string {
+  return typeof value === "string" && SESSION_ID_PATTERN.test(value)
+}
+
+function isPositiveDurationMs(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
 }
 
 async function resolveIdleTimeoutMs(
@@ -174,21 +226,21 @@ async function resolveIdleTimeoutMs(
 ): Promise<number> {
   const configured = options.idleTimeoutMs
   if (configured === undefined) return DEFAULT_IDLE_TIMEOUT_MS
-  if (isPositiveDurationMs(configured) && configured <= MAX_TIMER_DELAY_MS) {
-    return configured
+  if (!isPositiveDurationMs(configured)) {
+    await writeLog(client, "warn", "InvalidIdleTimeoutMs", {
+      configured: String(configured),
+      fallbackMs: DEFAULT_IDLE_TIMEOUT_MS,
+    })
+    return DEFAULT_IDLE_TIMEOUT_MS
   }
-  if (isPositiveDurationMs(configured)) {
+  if (configured > MAX_TIMER_DELAY_MS) {
     await writeLog(client, "warn", "IdleTimeoutMsClamped", {
       configured: String(configured),
       clampedMs: MAX_TIMER_DELAY_MS,
     })
     return MAX_TIMER_DELAY_MS
   }
-  await writeLog(client, "warn", "InvalidIdleTimeoutMs", {
-    configured: String(configured),
-    fallbackMs: DEFAULT_IDLE_TIMEOUT_MS,
-  })
-  return DEFAULT_IDLE_TIMEOUT_MS
+  return configured
 }
 
 async function buildHooks(context: FeatureContext): Promise<Hooks> {
@@ -201,6 +253,7 @@ async function buildHooks(context: FeatureContext): Promise<Hooks> {
     idleTimeoutMs,
     sessions: new Map(),
     cachedFeatureStates: {},
+    isDisposed: false,
   }
 
   return {
@@ -208,22 +261,23 @@ async function buildHooks(context: FeatureContext): Promise<Hooks> {
       switch (event.type) {
         case "session.status": {
           const { sessionID, status } = event.properties
-          if (!sessionID || !status) return
+          if (!isUsableSessionID(sessionID) || !status) return
           if (status.type === "idle") await armIdleTimer(tracker, sessionID)
           if (status.type === "busy") cancelIdleTimer(tracker, sessionID)
           return
         }
         case "session.deleted": {
           const sessionID = event.properties.info?.id
-          if (sessionID) forgetSession(tracker, sessionID)
+          if (isUsableSessionID(sessionID)) forgetSession(tracker, sessionID)
           return
         }
       }
     },
     "chat.message": async ({ sessionID }) => {
-      if (sessionID) reopenIdlePeriod(tracker, sessionID)
+      if (isUsableSessionID(sessionID)) reopenIdlePeriod(tracker, sessionID)
     },
     dispose: async () => {
+      tracker.isDisposed = true
       for (const sessionID of [...tracker.sessions.keys()]) {
         forgetSession(tracker, sessionID)
       }
