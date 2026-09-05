@@ -4,20 +4,20 @@
 
 ## Idle Auto Compactor
 
-Compacts an OpenCode session automatically after the session stays continuously idle for 30 minutes (configurable). The feature is event-driven and uses one-shot timers, never polling. It is feature 1 of the essentials plugin suite and can be toggled at runtime from the TUI.
+Compacts an OpenCode session automatically after the session stays continuously idle for 30 minutes (configurable). The feature is event-driven and uses one-shot timers, never polling. It is feature 1 of the essentials plugin suite and can be toggled and tuned at runtime from the TUI.
 
 **Flow:**
 
 1. `src/server.ts` — server entry. Builds each feature's hooks from per-feature options and fans them out via `combineHooks`.
 2. `src/features/registry.ts` — lists the `idle-auto-compactor` `SuiteFeature` for both entry points.
 3. `src/features/idle-auto-compactor.ts` — the feature. Subscribes to `session.status` and `session.deleted`. An idle status arms a one-shot timer; a busy status cancels it; a genuine `chat.message` reopens the idle period. When the timer fires, it reads the session messages, picks the last user message's model, and calls `session.summarize`. The state machine absorbs the compaction's own busy/idle echoes.
-4. `src/state.ts` — the toggle protocol. The server reads `$XDG_DATA_HOME/opencode/essentials.json` at each decision point to gate the feature.
-5. `src/valueObject/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `New*` constructor before use.
-5. `src/tui.ts` — TUI companion, registered in `tui.json` (the TUI host does
-   not read `opencode.json`). The palette command `essentials.features`
-   opens a `DialogSelect` to toggle the feature at runtime; the choice is
-   written to the state file.
-6. `src/README.md` — installation, configuration, and the exact semantics.
+4. `src/state.ts` — the shared config protocol. The server reads `$XDG_DATA_HOME/opencode/essentials.json` at each decision point: the master switch gates the feature, and the file's timeout setting overrides the plugin option.
+5. `src/valueObject/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `new*` constructor before use.
+6. `src/tui.ts` — TUI companion, registered in `tui.json` (the TUI host does
+   not read `opencode.json`). The `/essentials` command opens a
+   `DialogSelect` with the master switch, the feature flags, and the
+   idle-timeout submenu; every choice is written to the state file.
+7. `src/README.md` — installation, configuration, and the exact semantics.
 
 ---
 

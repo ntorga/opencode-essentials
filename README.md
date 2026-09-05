@@ -9,8 +9,8 @@
 
 A suite of plugins for [OpenCode](https://opencode.ai), version 1. One
 installable package with two entry points: a server plugin that runs the
-features, and a TUI companion that toggles each feature at runtime without
-a restart.
+features, and a TUI companion that switches them all off, toggles each one,
+and tunes idle timeouts at runtime without a restart.
 
 ## Features
 
@@ -31,7 +31,7 @@ The roadmap lives in `TODO.md` (not published).
 src/
   server.ts              server entry: runs every feature
   tui.ts                 TUI entry: feature toggles via /essentials
-  state.ts               toggle protocol (shared JSON file)
+  state.ts               shared config protocol (versioned JSON file)
   valueObject/           one validated type per file — the input boundary
   hooks.ts, log.ts       event fan-out, structured logging
   features/              one file per feature, plus the registry
