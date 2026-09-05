@@ -42,7 +42,8 @@ configurable per project.
 - Timers and state are tracked per session. `session.deleted` and plugin
   shutdown clear them.
 - The compaction uses the model of the session's last user message. A
-  session without one is skipped.
+  session is skipped when it has no user message or that message carries
+  no model.
 
 ## Installation
 
@@ -101,8 +102,9 @@ logged as `IdleTimeoutMsClamped`.
 
 Toggle state lives in `$XDG_DATA_HOME/opencode/essentials.json`. If the
 server cannot read it, the feature keeps its last known decision and logs
-`FeatureStatesReadFailed`. If the TUI cannot write it, the user sees an
-error toast.
+`FeatureStatesReadFailed`. The plugin refuses to overwrite a state file it
+cannot parse, so a corrupt file never silently resets stored toggles. The
+TUI shows an error toast when a write is refused.
 
 ## Semantics in detail
 
@@ -118,7 +120,8 @@ error toast.
   again after the next full busy/idle cycle and the idle timeout elapse.
 - **Errors are loud and non-fatal.** Failures are logged
   (`IdleCompactionRejected`, `IdleCompactionFailed`) and the idle period is
-  still settled. No retries within the same period.
+  still settled. No retries within the same period. Each call to the
+  OpenCode server carries a 60-second deadline.
 - **Sessions idle at startup wait.** The plugin arms on the idle
   transition. A session already idle when OpenCode started compacts after
   its next idle transition, not sooner.
