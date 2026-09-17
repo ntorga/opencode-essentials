@@ -1,14 +1,17 @@
 # opencode-essentials
 
-One plugin package, two entry points, several features. The server entry
+One plugin package, three entry points, several features. The server entry
 runs the features. The TUI companion gives the user a command to switch
 everything off at once, enable or disable each feature at runtime, and
-tune a feature's idle timeout.
+tune a feature's idle timeout. The TUI idle clock shows, on screen, how long
+the open session has waited for your input.
 
 ```
 src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
+  idle-clock.tsx default export { id, tui }    — idle session clock line (TUI-side)
+  idleWaiting.ts clock logic                   — anchor, elapsed, and format
   state.ts     shared state file protocol      — written by tui, read by server
   valueObject/ one validated type per file     — the input trust boundary
   hooks.ts     fans one hook out to all features
@@ -17,11 +20,12 @@ src/
     feature.ts   the SuiteFeature contract
     registry.ts  the feature list both entries read
     idle-auto-compactor.ts  feature 1
+    idle-clock.ts  feature 2 (TUI-only, no server hooks)
 ```
 
 A module exports either `server()` or `tui()`, never both — OpenCode's
-loader enforces that. A package exposes both kinds through its two entry
-files, and each host picks the entry that matches its kind.
+loader enforces that. A package exposes both kinds through its entry files,
+and each host picks the entry that matches its kind.
 
 ## Features
 
@@ -47,6 +51,27 @@ configurable per project.
   session is skipped when it has no user message or that message carries
   no model.
 
+### Idle Session Clock
+
+Shows one line at the bottom of the screen while the open session waits for
+your input, for example `idle 3m 12s`. It is a TUI-only feature: it renders
+inside the OpenCode TUI from the host's synced state, so it has no server
+hooks.
+
+- The clock anchors on the completion of the newest real assistant answer —
+  the moment the model stopped answering. It counts up from there.
+- The auto-compactor's own summary turn does not re-anchor the clock, so an
+  automatic compaction does not reset your displayed wait to zero.
+- The line is hidden while the session is `busy` or `retry`, while the
+  transcript has no finished answer yet, and on the home route.
+- It re-derives the wait from synced message state each second, so it needs
+  no event subscription, and a session already idle when the TUI started
+  shows its true elapsed wait.
+- The master switch and the **Idle Session Clock** row in `/essentials`
+  gate it. A change takes effect on the next tick, without a restart. An
+  unreadable state file hides the line rather than resurrecting a clock the
+  user may have switched off.
+
 ## Installation
 
 Register the server entry in `opencode.json`:
@@ -66,11 +91,11 @@ Register the server entry in `opencode.json`:
 }
 ```
 
-Register the TUI entry in `tui.json`:
+Register the TUI entries in `tui.json`:
 
 ```json
 {
-  "plugin": ["./src/tui.ts"]
+  "plugin": ["./src/tui.ts", "./src/idle-clock.tsx"]
 }
 ```
 
@@ -123,7 +148,7 @@ State file (`$XDG_DATA_HOME/opencode/essentials.json`), current shape:
 {
   "version": 1,
   "enabled": true,
-  "features": { "idle-auto-compactor": false },
+  "features": { "idle-auto-compactor": false, "idle-clock": true },
   "settings": { "idle-auto-compactor": { "idleTimeoutMs": 1800000 } }
 }
 ```
@@ -159,12 +184,14 @@ The TUI shows an error toast when a write is refused.
 
 ## Requirements
 
-- OpenCode 1.18.x, verified against 1.18.18. The server half uses the
+- OpenCode 1.18.x, verified against 1.18.29. The server half uses the
   `session.status` event and the `session.summarize` API. The TUI half
   uses the TUI plugin surface (`keymap.registerLayer`, `ui.dialog`,
-  `ui.DialogSelect`, `ui.DialogPrompt`, `ui.toast`).
-- No runtime dependencies. Both entries import types and Node built-ins
-  only. No `package.json` needed in `.opencode/`.
+  `ui.DialogSelect`, `ui.DialogPrompt`, `ui.toast`, `slots.register`).
+- No dependencies to install. The entries import types, Node built-ins,
+  and host-provided runtime modules only: `solid-js` and `@opentui/*` for
+  the clock's view, which the OpenCode TUI registers for plugins at load.
+  No `package.json` needed in `.opencode/`.
 
 ## Tests
 
@@ -190,3 +217,9 @@ npm run typecheck # tsc --noEmit
    choice.
 6. Re-enable and let an idle period elapse: compaction resumes without a
    restart.
+7. Watch the bottom line while the session waits: it ticks once a second
+   and shows `idle 0s` right after a reply. Send a prompt: the line
+   disappears while the model answers and returns counting the new wait.
+8. Type `/essentials` and disable **Idle Session Clock**: the line
+   disappears within a second. Re-enable: it returns with the true elapsed
+   time.

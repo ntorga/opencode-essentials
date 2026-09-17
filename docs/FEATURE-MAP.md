@@ -21,6 +21,33 @@ Compacts an OpenCode session automatically after the session stays continuously 
 
 ---
 
+## Idle Session Clock
+
+Shows how long the open session has been idle — the time since the model
+stopped answering and left the floor to the user — as one line at the bottom
+of the TUI (for example `idle 3m 12s`). It is feature 2 of the essentials
+suite and is toggled at runtime from the same `/essentials` dialog. It is a
+TUI-only feature: it has no server hooks.
+
+**Flow:**
+
+1. `src/idle-clock.tsx` — a second TUI entry, registered in `tui.json`. It
+   registers a host `app_bottom` slot through `api.slots.register`. A 1-second
+   Solid signal drives the tick.
+2. `src/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
+   takes the newest real assistant completion as the idle anchor — skipping
+   the auto-compactor's summary turn — and formats the elapsed wait. It
+   hides the line unless the session status is `idle`.
+3. `src/state.ts` — reads the master switch and the `idle-clock` flag from the
+   shared state file each tick, so a `/essentials` toggle takes effect without
+   a restart.
+4. `src/features/idle-clock.ts` — the `SuiteFeature` entry (no `buildHooks`),
+   which lists the feature in the dialog and gates the master switch.
+5. `src/valueObject/timestampMs.ts` — the trust boundary for the message and
+   wall-clock times that reach the logic.
+
+---
+
 ## Exec Wrapper Blind Spot (planned)
 
 Closes the bash permission blind spot where prefix executors (`timeout`, `nohup`, `bash -c`, `mise exec`, `direnv exec`) hide the inner command from opencode's permission tiers. Planned as another feature in the same essentials bundle. Not yet implemented; the code path is not traceable. Roadmap item 2 in `TODO.md`.

@@ -8,37 +8,21 @@
 > not expect the care of hand-written code.
 
 A suite of plugins for [OpenCode](https://opencode.ai), version 1. One
-installable package with two entry points: a server plugin that runs the
-features, and a TUI companion that switches them all off, toggles each one,
-and tunes idle timeouts at runtime without a restart.
+installable package, three entry points: a server plugin that runs the
+features, a TUI companion that toggles them at runtime, and a TUI idle clock
+that shows how long the open session has waited for your input.
 
 ## Features
 
 - **Idle Auto Compactor** (implemented): compacts a session after it stays
   continuously idle, 30 minutes by default. Event-driven, never polls.
+- **Idle Session Clock** (implemented): a TUI line that shows how long the
+  open session has been idle since the model stopped answering. Hides while
+  the model works; toggled from `/essentials`.
 - **Exec wrapper blind spot** (planned): makes wrapped commands visible to
   the permission tiers.
-- **Native skills** (planned): promotes local skill playbooks to native
-  OpenCode skills.
 - **KDE permission notifications** (planned): notifies on permission
   requests, with an allow action.
-
-The roadmap lives in `TODO.md` (not published).
-
-## Layout
-
-```
-src/
-  server.ts              server entry: runs every feature
-  tui.ts                 TUI entry: feature toggles via /essentials
-  state.ts               shared config protocol (versioned JSON file)
-  valueObject/           one validated type per file — the input boundary
-  hooks.ts, log.ts       event fan-out, structured logging
-  features/              one file per feature, plus the registry
-  README.md              plugin installation, configuration, semantics
-docs/
-  FEATURE-MAP.md         feature-to-code index
-```
 
 ## Development
 
@@ -50,5 +34,5 @@ npm test          # node --test
 npm run typecheck # tsc --noEmit
 ```
 
-Plugin installation and the exact idle-compaction semantics are documented
-in [`src/README.md`](src/README.md).
+Installation, configuration, and feature semantics live in
+[`src/README.md`](src/README.md).
