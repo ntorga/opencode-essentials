@@ -13,15 +13,25 @@ import {
   MAX_TIMEOUT_MINUTES,
   newIdleTimeoutMs,
 } from "./valueObject/idleTimeoutMs.ts"
+import type { ContextTokens } from "./valueObject/contextTokens.ts"
+import {
+  DEFAULT_TOKEN_CEILING,
+  MAX_TOKEN_CEILING,
+  TOKEN_CEILING_PRESETS,
+  newContextTokens,
+} from "./valueObject/contextTokens.ts"
 import { sanitizeText } from "./log.ts"
 import {
   clearIdleTimeoutMs,
+  clearTokenCeiling,
   isFeatureChosen,
   readEssentialsConfig,
   resolveEffectiveIdleTimeoutMs,
+  resolveEffectiveTokenCeiling,
   writeFeatureEnabled,
   writeGlobalEnabled,
   writeIdleTimeoutMs,
+  writeTokenCeiling,
 } from "./state.ts"
 
 const GLOBAL_ROW_VALUE = "$global"
@@ -30,9 +40,15 @@ const CUSTOM_TIMEOUT_VALUE = "$custom"
 const CLEAR_TIMEOUT_VALUE = "$clear"
 const TIMEOUT_PRESET_MINUTES = [5, 15, 30, 60]
 
+const CEILING_ROW_PREFIX = "$ceiling:"
+const CEILING_CUSTOM_VALUE = "$custom-ceiling"
+const CEILING_CLEAR_VALUE = "$clear-ceiling"
 const TIMEOUT_MINUTES_RANGE = `1-${MAX_TIMEOUT_MINUTES}`
+const CEILING_INPUT_RANGE = `1-${MAX_TOKEN_CEILING}`
 const REJECTED_TIMEOUT_HINT =
   `EssentialsIdleTimeoutRejected: enter whole minutes from ${TIMEOUT_MINUTES_RANGE}`
+const REJECTED_CEILING_HINT =
+  `EssentialsTokenCeilingRejected: enter whole tokens from ${CEILING_INPUT_RANGE}`
 
 function formatEnabledState(enabled: boolean): string {
   return enabled ? "enabled" : "disabled"
@@ -46,6 +62,16 @@ function formatDuration(idleTimeoutMs: IdleTimeoutMs): string {
   const restMinutes = totalMinutes % 60
   if (restMinutes === 0) return `${hours} h`
   return `${hours} h ${restMinutes} min`
+}
+
+function trimCeilingUnit(value: number): string {
+  return String(Math.round(value * 100) / 100)
+}
+
+function formatTokenCeiling(tokens: ContextTokens): string {
+  if (tokens >= 1_000_000) return `${trimCeilingUnit(tokens / 1_000_000)}M`
+  if (tokens >= 1000) return `${trimCeilingUnit(tokens / 1000)}k`
+  return String(tokens)
 }
 
 function reportWriteFailure(api: TuiPluginApi, failure: unknown) {
@@ -136,10 +162,28 @@ function showFeatureDialog(api: TuiPluginApi) {
       footer: `${formatDuration(effectiveMs)} (${source})`,
     }
   })
+  const ceilingRows = FEATURES.filter(
+    (feature) => feature.hasAdjustableTokenCeiling,
+  ).map((feature) => {
+    const storedCeiling = config.ceilings[feature.id]
+    const effectiveCeiling = resolveEffectiveTokenCeiling(
+      config,
+      feature.id,
+      DEFAULT_TOKEN_CEILING,
+    )
+    const source = storedCeiling === undefined ? "default" : "stored"
+    return {
+      title: `${feature.title} token ceiling`,
+      value: `${CEILING_ROW_PREFIX}${feature.id}`,
+      description:
+        "How many tokens of context a session may reach before it compacts.",
+      footer: `${formatTokenCeiling(effectiveCeiling)} (${source})`,
+    }
+  })
   api.ui.dialog.replace(() =>
     api.ui.DialogSelect({
       title: "OpenCode Essentials",
-      options: [globalRow, ...featureRows, ...timeoutRows],
+      options: [globalRow, ...featureRows, ...timeoutRows, ...ceilingRows],
       onSelect: (selectedOption) =>
         selectDialogRow(api, selectedOption.value),
     }),
@@ -156,6 +200,13 @@ function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
     rowValue.startsWith(TIMEOUT_ROW_PREFIX)
   ) {
     selectTimeoutFeature(api, rowValue.slice(TIMEOUT_ROW_PREFIX.length))
+    return
+  }
+  if (
+    typeof rowValue === "string" &&
+    rowValue.startsWith(CEILING_ROW_PREFIX)
+  ) {
+    selectCeilingFeature(api, rowValue.slice(CEILING_ROW_PREFIX.length))
     return
   }
   const feature = findFeatureByRow(rowValue)
@@ -292,6 +343,123 @@ function submitCustomTimeout(
     return
   }
   saveIdleTimeout(api, feature, timeout)
+}
+
+function selectCeilingFeature(api: TuiPluginApi, rawFeatureId: string) {
+  const feature = findFeatureByRow(rawFeatureId)
+  if (!feature || !feature.hasAdjustableTokenCeiling) return
+  showTokenCeilingDialog(api, feature)
+}
+
+function saveTokenCeiling(
+  api: TuiPluginApi,
+  feature: SuiteFeature,
+  ceiling: ContextTokens,
+) {
+  try {
+    writeTokenCeiling(feature.id, ceiling)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "success",
+    message: `${feature.title} token ceiling is ${formatTokenCeiling(ceiling)}`,
+  })
+  showFeatureDialog(api)
+}
+
+function clearStoredTokenCeiling(api: TuiPluginApi, feature: SuiteFeature) {
+  try {
+    clearTokenCeiling(feature.id)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "info",
+    message: `${feature.title} token ceiling is back to the default`,
+  })
+  showFeatureDialog(api)
+}
+
+function showTokenCeilingDialog(api: TuiPluginApi, feature: SuiteFeature) {
+  const config = readEssentialsConfig().config
+  const storedCeiling = config.ceilings[feature.id]
+  const options: Array<{ title: string; value: unknown; footer: string }> =
+    TOKEN_CEILING_PRESETS.map((ceiling) => ({
+      title: formatTokenCeiling(ceiling),
+      value: ceiling,
+      footer: ceiling === storedCeiling ? "stored" : "",
+    }))
+  options.push({
+    title: "Custom token count…",
+    value: CEILING_CUSTOM_VALUE,
+    footer: "",
+  })
+  if (storedCeiling !== undefined) {
+    options.push({
+      title: `Back to default (${formatTokenCeiling(DEFAULT_TOKEN_CEILING)})`,
+      value: CEILING_CLEAR_VALUE,
+      footer: "",
+    })
+  }
+  api.ui.dialog.replace(() =>
+    api.ui.DialogSelect({
+      title: `${feature.title}: token ceiling`,
+      options,
+      onSelect: (selectedOption) =>
+        pickTokenCeiling(api, feature, selectedOption.value),
+    }),
+  )
+}
+
+function pickTokenCeiling(
+  api: TuiPluginApi,
+  feature: SuiteFeature,
+  rowValue: unknown,
+) {
+  if (rowValue === CEILING_CUSTOM_VALUE) {
+    showCustomCeilingPrompt(api, feature)
+    return
+  }
+  if (rowValue === CEILING_CLEAR_VALUE) {
+    clearStoredTokenCeiling(api, feature)
+    return
+  }
+  const ceiling = newContextTokens(rowValue)
+  if (!ceiling) return
+  saveTokenCeiling(api, feature, ceiling)
+}
+
+function showCustomCeilingPrompt(api: TuiPluginApi, feature: SuiteFeature) {
+  api.ui.dialog.replace(() =>
+    api.ui.DialogPrompt({
+      title:
+        `${feature.title}: token ceiling in tokens (${CEILING_INPUT_RANGE})`,
+      placeholder: "384000",
+      onConfirm: (value: string) =>
+        submitCustomCeiling(api, feature, value),
+      onCancel: () => showFeatureDialog(api),
+    }),
+  )
+}
+
+function submitCustomCeiling(
+  api: TuiPluginApi,
+  feature: SuiteFeature,
+  rawValue: string,
+) {
+  const ceiling = newContextTokens(Number(rawValue.trim()))
+  if (!ceiling) {
+    api.ui.toast({
+      variant: "error",
+      message: REJECTED_CEILING_HINT,
+    })
+    showCustomCeilingPrompt(api, feature)
+    return
+  }
+  saveTokenCeiling(api, feature, ceiling)
 }
 
 const tui: TuiPlugin = async (api) => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import type { FeatureId } from "./featureId.ts"
 import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
+import { newContextTokens } from "./contextTokens.ts"
 import {
   newDefaultEssentialsConfig,
   ESSENTIALS_CONFIG_VERSION,
@@ -10,6 +11,7 @@ import {
 } from "./essentialsConfig.ts"
 
 const compactorId = "idle-auto-compactor" as FeatureId
+const ceilingId = "token-ceiling-compactor" as FeatureId
 
 function copyStates(config: ReturnType<typeof parseEssentialsConfig>) {
   if (config === undefined) return undefined
@@ -48,6 +50,26 @@ describe("parseEssentialsConfig", () => {
     assert.equal(config?.isEnabled, false)
     assert.deepEqual(copyStates(config), { "idle-auto-compactor": true })
     assert.deepEqual({ ...config?.timeouts }, { "idle-auto-compactor": 60000 })
+  })
+
+  it("reads a settings entry that stores only a token ceiling", () => {
+    const config = parseEssentialsConfig({
+      version: ESSENTIALS_CONFIG_VERSION,
+      settings: { [ceilingId]: { ceilingTokens: 128000 } },
+    })
+    assert.deepEqual({ ...config?.ceilings }, { [ceilingId]: 128000 })
+    assert.deepEqual({ ...config?.timeouts }, {})
+  })
+
+  it("reads a settings entry that stores both tunables", () => {
+    const config = parseEssentialsConfig({
+      version: ESSENTIALS_CONFIG_VERSION,
+      settings: {
+        [ceilingId]: { idleTimeoutMs: 60000, ceilingTokens: 512000 },
+      },
+    })
+    assert.deepEqual({ ...config?.timeouts }, { [ceilingId]: 60000 })
+    assert.deepEqual({ ...config?.ceilings }, { [ceilingId]: 512000 })
   })
 
   it("defaults enabled, features, and settings when absent", () => {
@@ -93,6 +115,10 @@ describe("parseEssentialsConfig", () => {
     { "idle-auto-compactor": {} },
     { "": { idleTimeoutMs: 5 } },
     { "idle-auto-compactor": 5 },
+    { [ceilingId]: { ceilingTokens: 0 } },
+    { [ceilingId]: { ceilingTokens: 1.5 } },
+    { [ceilingId]: { ceilingTokens: 2000001 } },
+    { [ceilingId]: { ceilingTokens: "384000" } },
   ]) {
     it(`rejects the document over settings ${JSON.stringify(broken)}`, () => {
       assert.equal(
@@ -126,6 +152,19 @@ describe("serializeEssentialsConfig", () => {
       JSON.parse(serializeEssentialsConfig(config)),
     )
     assert.deepEqual(reparsed, config)
+  })
+
+  it("round-trips ceilings alongside timeouts", () => {
+    const config = newDefaultEssentialsConfig()
+    config.timeouts[compactorId] = newIdleTimeoutMs(900000)
+    config.ceilings[ceilingId] = newContextTokens(1000000)
+    config.ceilings[compactorId] = newContextTokens(256000)
+    const serialized = JSON.parse(serializeEssentialsConfig(config))
+    assert.deepEqual(serialized.settings, {
+      "idle-auto-compactor": { idleTimeoutMs: 900000, ceilingTokens: 256000 },
+      "token-ceiling-compactor": { ceilingTokens: 1000000 },
+    })
+    assert.deepEqual(parseEssentialsConfig(serialized), config)
   })
 
   it("writes an empty settings block when no timeouts exist", () => {

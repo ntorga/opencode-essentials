@@ -118,13 +118,22 @@ describe("essentials tui companion", () => {
       [
         "$global",
         "idle-auto-compactor",
+        "token-ceiling-compactor",
         "idle-clock",
         "$timeout:idle-auto-compactor",
+        "$ceiling:token-ceiling-compactor",
       ],
     )
     assert.deepEqual(
       dialog.options.map((option) => option.footer),
-      ["enabled", "enabled", "enabled", "30 min (default)"],
+      [
+        "enabled",
+        "enabled",
+        "enabled",
+        "enabled",
+        "30 min (default)",
+        "384k (default)",
+      ],
     )
   })
 
@@ -211,7 +220,7 @@ describe("essentials tui companion", () => {
     assert.match(fake.toastMessages.join("|"), /15 min/)
     assert.equal(fake.openedDialogs[2]?.title, "OpenCode Essentials")
     assert.equal(
-      fake.openedDialogs[2]?.options[3]?.footer,
+      fake.openedDialogs[2]?.options[4]?.footer,
       "15 min (stored)",
     )
   })
@@ -221,7 +230,7 @@ describe("essentials tui companion", () => {
     await openMainDialog(fake)
 
     assert.equal(
-      fake.openedDialogs[0]?.options[3]?.footer,
+      fake.openedDialogs[0]?.options[4]?.footer,
       "30 min (default)",
     )
   })
@@ -239,7 +248,7 @@ describe("essentials tui companion", () => {
     await openMainDialog(fake)
 
     assert.equal(
-      fake.openedDialogs[0]?.options[3]?.footer,
+      fake.openedDialogs[0]?.options[4]?.footer,
       "under a minute (stored)",
     )
   })
@@ -298,8 +307,122 @@ describe("essentials tui companion", () => {
 
     assert.deepEqual({ ...readEssentialsConfig().config.timeouts }, {})
     assert.equal(
-      fake.openedDialogs[4]?.options[3]?.footer,
+      fake.openedDialogs[4]?.options[4]?.footer,
       "30 min (default)",
+    )
+  })
+
+  it("opens the ceiling submenu from the ceiling row", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+    fake.openedDialogs[0]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+
+    const submenu = fake.openedDialogs[1]
+    assert.ok(submenu)
+    assert.match(submenu.title, /token ceiling/)
+    assert.deepEqual(
+      submenu.options.map((option) => option.value),
+      [128000, 256000, 384000, 512000, 768000, 1000000, "$custom-ceiling"],
+    )
+    assert.deepEqual(
+      submenu.options.map((option) => option.title),
+      ["128k", "256k", "384k", "512k", "768k", "1M", "Custom token count…"],
+    )
+  })
+
+  it("writes a preset ceiling and marks it stored", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+    fake.openedDialogs[0]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+    fake.openedDialogs[1]?.onSelect({ value: 128000 })
+
+    assert.equal(
+      readEssentialsConfig().config.ceilings[FEATURES[1].id],
+      128000,
+    )
+    assert.match(fake.toastMessages.join("|"), /128k/)
+    assert.equal(
+      fake.openedDialogs[2]?.options[5]?.footer,
+      "128k (stored)",
+    )
+
+    fake.openedDialogs[2]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+    assert.equal(fake.openedDialogs[3]?.options[0]?.footer, "stored")
+    assert.deepEqual(
+      fake.openedDialogs[3]?.options.map((option) => option.value),
+      [
+        128000,
+        256000,
+        384000,
+        512000,
+        768000,
+        1000000,
+        "$custom-ceiling",
+        "$clear-ceiling",
+      ],
+    )
+  })
+
+  it("accepts a custom ceiling from the prompt", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+    fake.openedDialogs[0]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+    fake.openedDialogs[1]?.onSelect({ value: "$custom-ceiling" })
+
+    fake.openedPrompts[0]?.onConfirm("999000")
+
+    assert.equal(
+      readEssentialsConfig().config.ceilings[FEATURES[1].id],
+      999000,
+    )
+    assert.match(fake.toastMessages.join("|"), /999k/)
+  })
+
+  for (const rawInput of ["banana", "0", "-5", "1.5", "2000001", ""]) {
+    it(`rejects custom ceiling "${rawInput}" and reopens the prompt`, async () => {
+      const fake = fakeTuiApi()
+      await openMainDialog(fake)
+      fake.openedDialogs[0]?.onSelect({
+        value: "$ceiling:token-ceiling-compactor",
+      })
+      fake.openedDialogs[1]?.onSelect({ value: "$custom-ceiling" })
+
+      fake.openedPrompts[0]?.onConfirm(rawInput)
+
+      assert.match(
+        fake.toastMessages.join("|"),
+        /EssentialsTokenCeilingRejected/,
+      )
+      assert.equal(fake.openedPrompts.length, 2)
+      assert.deepEqual({ ...readEssentialsConfig().config.ceilings }, {})
+    })
+  }
+
+  it("clears a stored ceiling back to the default", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+    fake.openedDialogs[0]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+    fake.openedDialogs[1]?.onSelect({ value: 768000 })
+    fake.openedDialogs[2]?.onSelect({
+      value: "$ceiling:token-ceiling-compactor",
+    })
+
+    fake.openedDialogs[3]?.onSelect({ value: "$clear-ceiling" })
+
+    assert.deepEqual({ ...readEssentialsConfig().config.ceilings }, {})
+    assert.equal(
+      fake.openedDialogs[4]?.options[5]?.footer,
+      "384k (default)",
     )
   })
 

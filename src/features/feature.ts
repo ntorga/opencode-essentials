@@ -11,6 +11,7 @@ export type SuiteFeature = {
   title: string
   description: string
   hasAdjustableIdleTimeout?: boolean
+  hasAdjustableTokenCeiling?: boolean
   // Absent on TUI-only features: the feature has no server-side behavior,
   // so the server entry skips it.
   buildHooks?: (context: FeatureContext) => Promise<Hooks>

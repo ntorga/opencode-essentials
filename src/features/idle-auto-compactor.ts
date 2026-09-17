@@ -1,5 +1,7 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
 import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { requestSummarize } from "./sessionSummarizer.ts"
 import { writeLog } from "../log.ts"
 import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
@@ -17,13 +19,12 @@ import { newSessionId } from "../valueObject/sessionId.ts"
 import {
   resolveEffectiveIdleTimeoutMs,
   isFeatureEnabled,
+  logEssentialsConfigReadFailure,
   readEssentialsConfig,
 } from "../state.ts"
 
 const idleAutoCompactorId: FeatureId =
   "idle-auto-compactor" as FeatureId
-
-const COMPACTION_REQUEST_DEADLINE_MS = 60 * 1000
 
 type IdleTimer = ReturnType<typeof setTimeout>
 
@@ -72,7 +73,7 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
   try {
     const sessionMessages = await tracker.client.session.messages({
       path: { id: sessionId },
-      signal: AbortSignal.timeout(COMPACTION_REQUEST_DEADLINE_MS),
+      signal: AbortSignal.timeout(CLIENT_REQUEST_DEADLINE_MS),
     })
     if (sessionMessages.error || !sessionMessages.data) {
       await writeLog(
@@ -112,15 +113,22 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
       })
       return
     }
-    const summarizeResponse = await tracker.client.session.summarize({
-      path: { id: sessionId },
-      body: { providerID: modelRef.providerId, modelID: modelRef.modelId },
-      signal: AbortSignal.timeout(COMPACTION_REQUEST_DEADLINE_MS),
-    })
-    if (summarizeResponse.error) {
+    const summarizeResult = await requestSummarize(
+      tracker.client,
+      sessionId,
+      modelRef,
+    )
+    if (summarizeResult.kind === "rejected") {
       await writeLog(tracker.client, "warn", "IdleCompactionRejected", {
         sessionId,
-        error: JSON.stringify(summarizeResponse.error),
+        error: summarizeResult.errorText,
+      })
+      return
+    }
+    if (summarizeResult.kind === "failed") {
+      await writeLog(tracker.client, "warn", "IdleCompactionFailed", {
+        sessionId,
+        error: summarizeResult.errorText,
       })
       return
     }
@@ -162,15 +170,6 @@ function compactorDecisionBuilder(
   }
   if (isClamped) decision.clampedFrom = wantedTimeoutMs
   return decision
-}
-
-async function logEssentialsConfigReadFailure(
-  tracker: IdleTracker,
-  readFailure: unknown,
-) {
-  await writeLog(tracker.client, "warn", "EssentialsConfigReadFailed", {
-    error: String(readFailure),
-  })
 }
 
 async function logIdleTimeoutClamped(
@@ -220,7 +219,10 @@ async function armIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
     )
   }
   if (decision.readFailure) {
-    await logEssentialsConfigReadFailure(tracker, decision.readFailure)
+    await logEssentialsConfigReadFailure(
+      tracker.client,
+      decision.readFailure,
+    )
   }
   if (decision.clampedFrom !== undefined) {
     await logIdleTimeoutClamped(tracker, decision.clampedFrom)
@@ -236,7 +238,10 @@ async function startCompaction(tracker: IdleTracker, sessionId: SessionId) {
   state.isSettledThisIdlePeriod = shouldSettlePeriod
   if (!shouldSettlePeriod) return
   if (decision.readFailure) {
-    await logEssentialsConfigReadFailure(tracker, decision.readFailure)
+    await logEssentialsConfigReadFailure(
+      tracker.client,
+      decision.readFailure,
+    )
   }
   await compactSession(tracker, sessionId)
 }

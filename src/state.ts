@@ -16,6 +16,9 @@ import {
   serializeEssentialsConfig,
 } from "./valueObject/essentialsConfig.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import type { ContextTokens } from "./valueObject/contextTokens.ts"
+import type { PluginInput } from "@opencode-ai/plugin"
+import { writeLog } from "./log.ts"
 import { newAbsolutePath } from "./valueObject/absolutePath.ts"
 
 export type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
@@ -119,6 +122,17 @@ export function isFeatureEnabled(
   return isFeatureChosen(config, featureId)
 }
 
+// The state file is read at every decision point; a failing read is one
+// protocol event shared by all features, so it has one log key.
+export async function logEssentialsConfigReadFailure(
+  client: PluginInput["client"],
+  readFailure: unknown,
+) {
+  await writeLog(client, "warn", "EssentialsConfigReadFailed", {
+    error: String(readFailure),
+  })
+}
+
 export function resolveEffectiveIdleTimeoutMs(
   config: EssentialsConfig,
   featureId: FeatureId,
@@ -191,5 +205,28 @@ export function writeIdleTimeoutMs(
 export function clearIdleTimeoutMs(featureId: FeatureId) {
   mutateEssentialsConfig((config) => {
     delete config.timeouts[featureId]
+  })
+}
+
+export function resolveEffectiveTokenCeiling(
+  config: EssentialsConfig,
+  featureId: FeatureId,
+  fallbackTokens: ContextTokens,
+): ContextTokens {
+  return config.ceilings[featureId] ?? fallbackTokens
+}
+
+export function writeTokenCeiling(
+  featureId: FeatureId,
+  ceiling: ContextTokens,
+) {
+  mutateEssentialsConfig((config) => {
+    config.ceilings[featureId] = ceiling
+  })
+}
+
+export function clearTokenCeiling(featureId: FeatureId) {
+  mutateEssentialsConfig((config) => {
+    delete config.ceilings[featureId]
   })
 }
