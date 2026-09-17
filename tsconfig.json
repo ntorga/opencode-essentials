@@ -7,6 +7,8 @@
     "types": ["node"],
     "strict": true,
     "noEmit": true,
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true

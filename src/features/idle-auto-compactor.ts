@@ -1,5 +1,5 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import type { FeatureContext, SuiteFeature } from "./feature.ts"
+import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
 import { writeLog } from "../log.ts"
 import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
@@ -353,7 +353,7 @@ async function buildHooks(context: FeatureContext): Promise<Hooks> {
   }
 }
 
-export const idleAutoCompactorFeature: SuiteFeature = {
+export const idleAutoCompactorFeature: ServerSuiteFeature = {
   id: idleAutoCompactorId,
   title: "Idle Auto Compactor",
   description:

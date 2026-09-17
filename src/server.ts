@@ -35,6 +35,12 @@ const server: Plugin = async (input, options) => {
   const perFeature = await filterValidFeatureOptions(input, options?.features)
   const featureHooks: Hooks[] = []
   for (const feature of FEATURES) {
+    if (!feature.buildHooks) {
+      await writeLog(input.client, "debug", "FeatureWithoutServerHooks", {
+        featureId: feature.id,
+      })
+      continue
+    }
     featureHooks.push(
       await feature.buildHooks({
         client: input.client,

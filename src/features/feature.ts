@@ -11,5 +11,13 @@ export type SuiteFeature = {
   title: string
   description: string
   hasAdjustableIdleTimeout?: boolean
+  // Absent on TUI-only features: the feature has no server-side behavior,
+  // so the server entry skips it.
+  buildHooks?: (context: FeatureContext) => Promise<Hooks>
+}
+
+// A feature that runs on the server must bring its hook builder; callers of
+// this type never guard for its absence.
+export type ServerSuiteFeature = SuiteFeature & {
   buildHooks: (context: FeatureContext) => Promise<Hooks>
 }

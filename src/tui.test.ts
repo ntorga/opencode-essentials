@@ -117,13 +117,14 @@ describe("essentials tui companion", () => {
       dialog.options.map((option) => option.value),
       [
         "$global",
-        ...FEATURES.map((feature) => feature.id),
+        "idle-auto-compactor",
+        "idle-clock",
         "$timeout:idle-auto-compactor",
       ],
     )
     assert.deepEqual(
       dialog.options.map((option) => option.footer),
-      ["enabled", "enabled", "30 min (default)"],
+      ["enabled", "enabled", "enabled", "30 min (default)"],
     )
   })
 
@@ -210,7 +211,7 @@ describe("essentials tui companion", () => {
     assert.match(fake.toastMessages.join("|"), /15 min/)
     assert.equal(fake.openedDialogs[2]?.title, "OpenCode Essentials")
     assert.equal(
-      fake.openedDialogs[2]?.options[2]?.footer,
+      fake.openedDialogs[2]?.options[3]?.footer,
       "15 min (stored)",
     )
   })
@@ -220,7 +221,7 @@ describe("essentials tui companion", () => {
     await openMainDialog(fake)
 
     assert.equal(
-      fake.openedDialogs[0]?.options[2]?.footer,
+      fake.openedDialogs[0]?.options[3]?.footer,
       "30 min (default)",
     )
   })
@@ -238,7 +239,7 @@ describe("essentials tui companion", () => {
     await openMainDialog(fake)
 
     assert.equal(
-      fake.openedDialogs[0]?.options[2]?.footer,
+      fake.openedDialogs[0]?.options[3]?.footer,
       "under a minute (stored)",
     )
   })
@@ -297,7 +298,7 @@ describe("essentials tui companion", () => {
 
     assert.deepEqual({ ...readEssentialsConfig().config.timeouts }, {})
     assert.equal(
-      fake.openedDialogs[4]?.options[2]?.footer,
+      fake.openedDialogs[4]?.options[3]?.footer,
       "30 min (default)",
     )
   })
