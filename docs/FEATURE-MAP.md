@@ -21,11 +21,39 @@ Compacts an OpenCode session automatically after the session stays continuously 
 
 ---
 
+## Token Ceiling Compactor
+
+Compacts a session once the newest finished turn's context usage passes a
+chosen token ceiling — default 384k, selectable 128k to 1M — regardless of
+the model. Small-context guard: the effective ceiling is the smaller of the
+choice and the model's own context window. Feature 2 of the essentials
+suite. It is a server feature; a `/essentials` row and picker control it at
+runtime.
+
+**Flow:**
+
+1. `src/features/token-ceiling-compactor.ts` — on an idle
+   `session.status` event, settles the period synchronously (the same
+   settle-flag echo absorption the idle compactor uses), then reads
+   messages and the provider list and decides.
+2. `src/contextCeiling.ts` — pure logic: measure the newest real completed
+   turn (usage tokens + model ref, skipping summary turns), read the model's
+   context window from the provider list, clamp the ceiling to it.
+3. `src/features/sessionSummarizer.ts` — the shared `session.summarize`
+   request (deadline, error mapping); used by both compactors.
+4. `src/valueObject/contextTokens.ts` — the validated token ceiling:
+   presets 128k–1M, default 384k, hard max 2,000,000.
+5. `src/state.ts` + `src/valueObject/essentialsConfig.ts` — the
+   `ceilingTokens` settings entry in the shared state file; the
+   `/essentials` submenu in `src/tui.ts` writes it.
+
+---
+
 ## Idle Session Clock
 
 Shows how long the open session has been idle — the time since the model
 stopped answering and left the floor to the user — as one line at the bottom
-of the TUI (for example `idle 3m 12s`). It is feature 2 of the essentials
+of the TUI (for example `idle 3m 12s`). It is feature 3 of the essentials
 suite and is toggled at runtime from the same `/essentials` dialog. It is a
 TUI-only feature: it has no server hooks.
 

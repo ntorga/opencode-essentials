@@ -3,8 +3,8 @@
 One plugin package, three entry points, several features. The server entry
 runs the features. The TUI companion gives the user a command to switch
 everything off at once, enable or disable each feature at runtime, and
-tune a feature's idle timeout. The TUI idle clock shows, on screen, how long
-the open session has waited for your input.
+tune a feature's idle timeout or token ceiling. The TUI idle clock shows,
+on screen, how long the open session has waited for your input.
 
 ```
 src/
@@ -12,6 +12,7 @@ src/
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
   idle-clock.tsx default export { id, tui }    — idle session clock line (TUI-side)
   idleWaiting.ts clock logic                   — anchor, elapsed, and format
+  contextCeiling.ts ceiling logic              — turn usage, model window, clamp
   state.ts     shared state file protocol      — written by tui, read by server
   valueObject/ one validated type per file     — the input trust boundary
   hooks.ts     fans one hook out to all features
@@ -20,7 +21,9 @@ src/
     feature.ts   the SuiteFeature contract
     registry.ts  the feature list both entries read
     idle-auto-compactor.ts  feature 1
-    idle-clock.ts  feature 2 (TUI-only, no server hooks)
+    token-ceiling-compactor.ts  feature 2
+    sessionSummarizer.ts  shared session.summarize call
+    idle-clock.ts  feature 3 (TUI-only, no server hooks)
 ```
 
 A module exports either `server()` or `tui()`, never both — OpenCode's
@@ -50,6 +53,33 @@ configurable per project.
 - The compaction uses the model of the session's last user message. A
   session is skipped when it has no user message or that message carries
   no model.
+
+### Token Ceiling Compactor
+
+Compacts a session once its context passes a token ceiling, regardless of
+the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
+512k, 768k, or 1M.
+
+- After each finished turn (`session.status` → `idle`), the plugin reads the
+  session's messages and measures the newest real answer: the sum of its
+  input, output, and cache tokens — the same numbers OpenCode's own
+  overflow check uses.
+- The ceiling check runs at most once per idle period; a genuine user
+  prompt reopens it. Each idle period settles
+  when the check runs, so the compaction turn's own busy/idle echo cannot
+  re-trigger it; a new `chat.message` reopens the period.
+- Small-context guard: the effective ceiling is the smaller of the chosen
+  value and the model's own context window, looked up from the host's
+  provider list. A 200k model with a 384k ceiling compacts at 200k. A model
+  the provider list does not describe keeps the chosen ceiling — unknown is
+  not small.
+- The measurement never uses the compactor's own summary turn, and the
+  compaction runs through the official `session.summarize` API with the
+  model of the measured turn.
+- The master switch, the **Token Ceiling Compactor** row, and the
+  **token ceiling** picker in `/essentials` control it without a restart.
+  The `ceilingTokens` plugin option sets a per-project default below the
+  stored value.
 
 ### Idle Session Clock
 
@@ -83,7 +113,8 @@ Register the server entry in `opencode.json`:
       "./src/server.ts",
       {
         "features": {
-          "idle-auto-compactor": { "idleTimeoutMs": 1800000 }
+          "idle-auto-compactor": { "idleTimeoutMs": 1800000 },
+          "token-ceiling-compactor": { "ceilingTokens": 512000 }
         }
       }
     ]
@@ -105,7 +136,7 @@ host loads `tui.json`. Restart OpenCode after changing either file.
 
 Toggling does not need a restart. Type `/essentials` in the prompt, or
 open the command palette (`ctrl+p` by default) and run **Toggle Essentials
-Features**. The dialog offers three kinds of row:
+Features**. The dialog offers four kinds of row:
 
 - **All features** — the master switch. Turning it off stops every feature
   at once and keeps each per-feature choice untouched.
@@ -113,6 +144,8 @@ Features**. The dialog offers three kinds of row:
   stays off while the master switch is off.
 - **One row per adjustable timeout** — opens a submenu of preset idle
   timeouts plus a custom value in minutes.
+- **One row per adjustable token ceiling** — opens a submenu of preset
+  ceilings (128k to 1M) plus a custom token count.
 
 Choices are written to `$XDG_DATA_HOME/opencode/essentials.json` (default
 `~/.local/share/opencode/essentials.json`) and take effect at each
@@ -125,13 +158,20 @@ the default.
 
 Server entry options — read once at startup:
 
-| Option                             | Type   | Default            |
-|------------------------------------|--------|--------------------|
+| Option | Type | Default |
+|--------|------|---------|
 | `features.idle-auto-compactor.idleTimeoutMs` | number | `1800000` (30 min) |
+| `features.token-ceiling-compactor.ceilingTokens` | number | `384000` |
+
+`ceilingTokens` is the context size, in tokens, at which the ceiling
+compactor runs. A missing value falls back to the default silently. A
+present-but-invalid value — non-integer, zero, negative, or above
+2,000,000 — falls back and is logged as `InvalidCeilingTokens`.
 
 `idleTimeoutMs` is the continuous idle time before a session is compacted.
-A missing, non-numeric, zero, or negative value falls back to the default.
-The plugin logs `InvalidIdleTimeoutMs` when it falls back. A value above
+A missing value falls back to the default silently; a present-but-invalid
+value (non-numeric, zero, or negative) falls back and is logged as
+`InvalidIdleTimeoutMs`. A value above
 Node's timer ceiling (`2^31-1` ms, about 24.8 days) is clamped to it and
 logged as `IdleTimeoutMsClamped`.
 
@@ -149,7 +189,10 @@ State file (`$XDG_DATA_HOME/opencode/essentials.json`), current shape:
   "version": 1,
   "enabled": true,
   "features": { "idle-auto-compactor": false, "idle-clock": true },
-  "settings": { "idle-auto-compactor": { "idleTimeoutMs": 1800000 } }
+  "settings": {
+    "idle-auto-compactor": { "idleTimeoutMs": 1800000 },
+    "token-ceiling-compactor": { "ceilingTokens": 384000 }
+  }
 }
 ```
 
@@ -185,7 +228,9 @@ The TUI shows an error toast when a write is refused.
 ## Requirements
 
 - OpenCode 1.18.x, verified against 1.18.29. The server half uses the
-  `session.status` event and the `session.summarize` API. The TUI half
+  the `session.status` and `chat.message` events, the `session.messages`
+  read, the `session.summarize` API, and the `provider.list` endpoint. The
+  TUI half
   uses the TUI plugin surface (`keymap.registerLayer`, `ui.dialog`,
   `ui.DialogSelect`, `ui.DialogPrompt`, `ui.toast`, `slots.register`).
 - No dependencies to install. The entries import types, Node built-ins,
@@ -217,9 +262,14 @@ npm run typecheck # tsc --noEmit
    choice.
 6. Re-enable and let an idle period elapse: compaction resumes without a
    restart.
-7. Watch the bottom line while the session waits: it ticks once a second
+7. Enable only the Token Ceiling Compactor with a low ceiling (e.g.
+   `{"ceilingTokens": 2000}` in the state file). Send one prompt: the
+   finished turn's usage passes the ceiling and the session compacts once,
+   right after the reply. Answer again: it compacts once more, never twice
+   per turn.
+8. Watch the bottom line while the session waits: it ticks once a second
    and shows `idle 0s` right after a reply. Send a prompt: the line
    disappears while the model answers and returns counting the new wait.
-8. Type `/essentials` and disable **Idle Session Clock**: the line
+9. Type `/essentials` and disable **Idle Session Clock**: the line
    disappears within a second. Re-enable: it returns with the true elapsed
    time.

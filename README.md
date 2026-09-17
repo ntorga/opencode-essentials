@@ -16,6 +16,9 @@ that shows how long the open session has waited for your input.
 
 - **Idle Auto Compactor** (implemented): compacts a session after it stays
   continuously idle, 30 minutes by default. Event-driven, never polls.
+- **Token Ceiling Compactor** (implemented): compacts a session once its
+  context passes a chosen token ceiling — 384k by default, 128k to 1M
+  selectable — regardless of the model, clamped to smaller model windows.
 - **Idle Session Clock** (implemented): a TUI line that shows how long the
   open session has been idle since the model stopped answering. Hides while
   the model works; toggled from `/essentials`.
