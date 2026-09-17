@@ -9,12 +9,13 @@
     "test": "node --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.18.25",
-    "@opencode-ai/sdk": "1.18.25",
+    "@opencode-ai/plugin": "1.18.29",
+    "@opencode-ai/sdk": "1.18.29",
     "@opentui/core": "0.4.5",
     "@opentui/keymap": "0.4.5",
     "@opentui/solid": "0.4.5",
     "@types/node": "^24.0.0",
+    "solid-js": "1.9.12",
     "typescript": "^5.9.3"
   }
 }
