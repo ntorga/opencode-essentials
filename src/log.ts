@@ -8,7 +8,7 @@ const MAX_LOG_VALUE_CHARS = 500
 // that contract; the sink sanitizes.
 export function sanitizeText(value: unknown): string {
   const stringified = String(value)
-  const stripped = stringified.replace(/[\u0000-\u001F\u007F]/g, " ")
+  const stripped = stringified.replace(/\p{Cc}/gu, " ")
   return stripped.slice(0, MAX_LOG_VALUE_CHARS)
 }
 
