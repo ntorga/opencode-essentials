@@ -1,17 +1,17 @@
-import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import { chmodSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import type { Event, UserMessage } from "@opencode-ai/sdk"
+import { afterEach, beforeEach, describe, it } from "node:test"
 import type { PluginInput } from "@opencode-ai/plugin"
-import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import type { Event, UserMessage } from "@opencode-ai/sdk"
 import {
   resolveEssentialsStatePath,
   writeFeatureEnabled,
   writeGlobalEnabled,
   writeIdleTimeoutMs,
 } from "../state.ts"
+import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
 import { idleAutoCompactorFeature } from "./idle-auto-compactor.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
@@ -19,22 +19,22 @@ import { idleAutoCompactorFeature } from "./idle-auto-compactor.ts"
 
 const SHORT_IDLE_MS = 40
 const SHORT_IDLE_TIMEOUT_MS = SHORT_IDLE_MS as IdleTimeoutMs
-const OVER_CEILING_TIMEOUT_MS = 2 ** 32 as IdleTimeoutMs
+const OVER_CEILING_TIMEOUT_MS = (2 ** 32) as IdleTimeoutMs
 const LONGER_THAN_IDLE_MS = 120
 
 let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
 beforeEach(() => {
-  previousDataHome = process.env["XDG_DATA_HOME"]
+  previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-test-"))
-  process.env["XDG_DATA_HOME"] = dataHomeTemp
+  process.env.XDG_DATA_HOME = dataHomeTemp
 })
 
 afterEach(() => {
   // "" and unset behave the same: resolveEssentialsStatePath falls back to
   // ~/.local/share for both.
-  process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
+  process.env.XDG_DATA_HOME = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
@@ -67,43 +67,64 @@ function userMessage(sessionId: string): UserMessage {
   }
 }
 
-function fakeClient(behavior: {
-  userMessageCount?: number
-  modellessUserMessages?: boolean
-  malformedUserModel?: boolean
-  modellessLastUserOnly?: boolean
-  messagesDelayMs?: number
-  summarizeDelayMs?: number
-  summarizeError?: unknown
-  summarizeThrows?: boolean
-} = {}) {
+function fakeClient(
+  behavior: {
+    userMessageCount?: number
+    assistantUsageTokens?: number
+    assistantModelMissing?: boolean
+    assistantModelMalformed?: boolean
+    lastMessageCompaction?: "summary" | "part"
+    messagesDelayMs?: number
+    summarizeDelayMs?: number
+    summarizeError?: unknown
+    summarizeThrows?: boolean
+  } = {},
+) {
   const summarizeCalls: Array<{
     sessionId: string
     providerId: string
     modelId: string
   }> = []
+  const summarizeAutoValues: boolean[] = []
   const requestSignals: unknown[] = []
   const logMessages: string[] = []
   const messageRecords: unknown[] = []
   const userMessageCount = behavior.userMessageCount ?? 1
-  const lastUserMessageInfo: Record<string, unknown> = { role: "user" }
-  if (behavior.malformedUserModel) {
-    lastUserMessageInfo.model = { providerID: "bad id", modelID: "m" }
-  } else if (!behavior.modellessUserMessages) {
-    lastUserMessageInfo.model = {
-      providerID: "fake",
-      modelID: "fake-model",
-    }
-  }
   for (let position = 0; position < userMessageCount; position++) {
-    messageRecords.push({ info: { ...lastUserMessageInfo } })
-  }
-  if (behavior.modellessLastUserOnly) {
     messageRecords.push({ info: { role: "user" } })
+  }
+  if (userMessageCount > 0) {
+    const assistantInfo: Record<string, unknown> = {
+      role: "assistant",
+      time: { created: 2, completed: 3 },
+      tokens: {
+        input: behavior.assistantUsageTokens ?? 40_000,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    }
+    if (!behavior.assistantModelMissing) {
+      assistantInfo.providerID = behavior.assistantModelMalformed
+        ? "bad id"
+        : "fake"
+      assistantInfo.modelID = "fake-model"
+    }
+    messageRecords.push({ info: assistantInfo })
+  }
+  if (behavior.lastMessageCompaction === "summary") {
+    messageRecords.push({ info: { role: "assistant", summary: true } })
+  }
+  if (behavior.lastMessageCompaction === "part") {
+    messageRecords.push({
+      info: { role: "user" },
+      parts: [{ type: "compaction" }],
+    })
   }
 
   return {
     summarizeCalls,
+    summarizeAutoValues,
     requestSignals,
     logMessages,
     client: {
@@ -117,13 +138,14 @@ function fakeClient(behavior: {
         },
         summarize: async (request: {
           path: { id: string }
-          body: { providerID: string; modelID: string }
+          body: { providerID: string; modelID: string; auto?: boolean }
         }) => {
           summarizeCalls.push({
             sessionId: request.path.id,
             providerId: request.body.providerID,
             modelId: request.body.modelID,
           })
+          summarizeAutoValues.push(request.body.auto ?? false)
           if (behavior.summarizeDelayMs) {
             await sleep(behavior.summarizeDelayMs)
           }
@@ -170,6 +192,7 @@ describe("idle-auto-compactor", () => {
       providerId: "fake",
       modelId: "fake-model",
     })
+    assert.deepEqual(fake.summarizeAutoValues, [false])
     await hooks.dispose?.()
   })
 
@@ -280,6 +303,53 @@ describe("idle-auto-compactor", () => {
     await hooks.dispose?.()
   })
 
+  it("skips when the newest message is a compaction summary", async () => {
+    const fake = fakeClient({ lastMessageCompaction: "summary" })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionSkippedAfterCompaction"))
+    await hooks.dispose?.()
+  })
+
+  it("skips when the newest user message contains a compaction part", async () => {
+    const fake = fakeClient({ lastMessageCompaction: "part" })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionSkippedAfterCompaction"))
+    await hooks.dispose?.()
+  })
+
+  it("skips when the newest answer used fewer than 32000 tokens", async () => {
+    const fake = fakeClient({ assistantUsageTokens: 31_999 })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionSkippedSmallContext"))
+    await hooks.dispose?.()
+  })
+
+  it("compacts when the newest answer used exactly 32000 tokens", async () => {
+    const fake = fakeClient({ assistantUsageTokens: 32_000 })
+    const hooks = await startCompactor(fake)
+
+    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
+    await sleep(LONGER_THAN_IDLE_MS)
+
+    assert.equal(fake.summarizeCalls.length, 1)
+    await hooks.dispose?.()
+  })
+
   it("clears the timer when the session is deleted", async () => {
     const fake = fakeClient()
     const hooks = await startCompactor(fake)
@@ -349,14 +419,15 @@ describe("idle-auto-compactor", () => {
     await hooks.dispose?.()
   })
 
-  it("a user message without a model skips compaction", async () => {
-    const fake = fakeClient({ modellessUserMessages: true })
+  it("a completed answer without a model skips compaction", async () => {
+    const fake = fakeClient({ assistantModelMissing: true })
     const hooks = await startCompactor(fake)
 
     await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
     await sleep(LONGER_THAN_IDLE_MS)
 
     assert.equal(fake.summarizeCalls.length, 0)
+    assert.ok(fake.logMessages.includes("IdleCompactionTurnRejected"))
     await hooks.dispose?.()
   })
 
@@ -371,7 +442,12 @@ describe("idle-auto-compactor", () => {
         type: "session.status",
         properties: {
           sessionId: "s1",
-          status: { type: "retry", attempt: 1, message: "backing off", next: 0 },
+          status: {
+            type: "retry",
+            attempt: 1,
+            message: "backing off",
+            next: 0,
+          },
         },
       } as unknown as Event,
     })
@@ -452,10 +528,7 @@ describe("idle-auto-compactor", () => {
 
   it("prefers the configured timeout over the plugin option", async () => {
     const fake = fakeClient()
-    writeIdleTimeoutMs(
-      idleAutoCompactorFeature.id,
-      SHORT_IDLE_TIMEOUT_MS,
-    )
+    writeIdleTimeoutMs(idleAutoCompactorFeature.id, SHORT_IDLE_TIMEOUT_MS)
     const hooks = await startCompactor(fake, {
       idleTimeoutMs: 10 * LONGER_THAN_IDLE_MS,
     })
@@ -556,27 +629,15 @@ describe("idle-auto-compactor", () => {
     assert.ok(fake.logMessages.includes("IdleCompactionSkippedDisposed"))
   })
 
-  it("skips when the last user message has no model", async () => {
-    const fake = fakeClient({ modellessLastUserOnly: true })
+  it("skips when the completed answer has a malformed model", async () => {
+    const fake = fakeClient({ assistantModelMalformed: true })
     const hooks = await startCompactor(fake)
 
     await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
     await sleep(LONGER_THAN_IDLE_MS)
 
     assert.equal(fake.summarizeCalls.length, 0)
-    assert.ok(fake.logMessages.includes("IdleCompactionSkippedNoModel"))
-    await hooks.dispose?.()
-  })
-
-  it("warns and skips on a malformed model in the last message", async () => {
-    const fake = fakeClient({ malformedUserModel: true })
-    const hooks = await startCompactor(fake)
-
-    await hooks.event?.({ event: sessionStatusEvent("s1", "idle") })
-    await sleep(LONGER_THAN_IDLE_MS)
-
-    assert.equal(fake.summarizeCalls.length, 0)
-    assert.ok(fake.logMessages.includes("IdleCompactionModelRejected"))
+    assert.ok(fake.logMessages.includes("IdleCompactionTurnRejected"))
     await hooks.dispose?.()
   })
 

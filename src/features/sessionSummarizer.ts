@@ -17,11 +17,17 @@ export async function requestSummarize(
   client: PluginInput["client"],
   sessionId: SessionId,
   modelRef: ModelRef,
+  autoContinue: boolean,
 ): Promise<SummarizeResult> {
   try {
+    const summarizeBody = {
+      providerID: modelRef.providerId,
+      modelID: modelRef.modelId,
+      auto: autoContinue,
+    }
     const summarizeResponse = await client.session.summarize({
       path: { id: sessionId },
-      body: { providerID: modelRef.providerId, modelID: modelRef.modelId },
+      body: summarizeBody,
       signal: AbortSignal.timeout(CLIENT_REQUEST_DEADLINE_MS),
     })
     if (summarizeResponse.error) {

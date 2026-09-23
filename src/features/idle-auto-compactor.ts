@@ -1,37 +1,33 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
-import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
-import { requestSummarize } from "./sessionSummarizer.ts"
+import { resolveCeilingTurn } from "../contextCeiling.ts"
 import { writeLog } from "../log.ts"
+import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
+import {
+  isFeatureEnabled,
+  logEssentialsConfigReadFailure,
+  readEssentialsConfig,
+  resolveEffectiveIdleTimeoutMs,
+} from "../state.ts"
 import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
+import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
 import {
+  clampIdleTimeoutToTimerDelay,
   DEFAULT_IDLE_TIMEOUT_MS,
   type IdleTimeoutMs,
   MAX_TIMER_DELAY_MS,
   newIdleTimeoutMs,
 } from "../valueObject/idleTimeoutMs.ts"
-import type { ModelRef } from "../valueObject/modelRef.ts"
 import type { SessionId } from "../valueObject/sessionId.ts"
-import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
-import { newModelRef } from "../valueObject/modelRef.ts"
 import { newSessionId } from "../valueObject/sessionId.ts"
-import {
-  resolveEffectiveIdleTimeoutMs,
-  isFeatureEnabled,
-  logEssentialsConfigReadFailure,
-  readEssentialsConfig,
-} from "../state.ts"
+import { isRecord } from "../valueObject/util.ts"
+import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { requestSummarize } from "./sessionSummarizer.ts"
 
-const idleAutoCompactorId: FeatureId =
-  "idle-auto-compactor" as FeatureId
+const idleAutoCompactorId: FeatureId = "idle-auto-compactor" as FeatureId
+const MIN_IDLE_COMPACTION_CONTEXT_TOKENS = 32_000
 
 type IdleTimer = ReturnType<typeof setTimeout>
-
-type MessageInfo = {
-  role: string
-  model?: unknown
-}
 
 type SessionState = {
   timer: IdleTimer | undefined
@@ -58,15 +54,24 @@ type CompactorDecision = {
   clampedFrom?: IdleTimeoutMs
 }
 
-function readLastUserMessage(
-  messages: Array<{ info: MessageInfo }>,
-): MessageInfo | undefined {
-  for (let position = messages.length - 1; position >= 0; position--) {
-    if (messages[position].info.role === "user") {
-      return messages[position].info
-    }
-  }
-  return undefined
+function isLastMessageCompaction(messages: unknown): boolean {
+  if (!Array.isArray(messages)) return false
+  const lastMessage = messages.at(-1)
+  if (!isRecord(lastMessage)) return false
+  const info = isRecord(lastMessage.info) ? lastMessage.info : undefined
+  if (info?.summary === true) return true
+  if (!Array.isArray(lastMessage.parts)) return false
+  return lastMessage.parts.some(
+    (part) => isRecord(part) && part.type === "compaction",
+  )
+}
+
+function hasRealAssistantMessage(messages: unknown): boolean {
+  if (!Array.isArray(messages)) return false
+  return messages.some((message) => {
+    if (!isRecord(message) || !isRecord(message.info)) return false
+    return message.info.role === "assistant" && message.info.summary !== true
+  })
 }
 
 async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
@@ -89,21 +94,38 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
       )
       return
     }
-    const lastUserMessage = readLastUserMessage(sessionMessages.data)
-    const modelRef = lastUserMessage
-      ? newModelRef(lastUserMessage.model)
-      : undefined
-    if (!modelRef) {
-      const isMalformedModel =
-        lastUserMessage !== undefined && lastUserMessage.model !== undefined
-      const skipKey = isMalformedModel
-        ? "IdleCompactionModelRejected"
-        : "IdleCompactionSkippedNoModel"
+    if (isLastMessageCompaction(sessionMessages.data)) {
       await writeLog(
         tracker.client,
-        isMalformedModel ? "warn" : "debug",
-        skipKey,
+        "debug",
+        "IdleCompactionSkippedAfterCompaction",
         { sessionId },
+      )
+      return
+    }
+    const turn = resolveCeilingTurn(sessionMessages.data)
+    if (!turn) {
+      const hasRejectedAssistant = hasRealAssistantMessage(sessionMessages.data)
+      await writeLog(
+        tracker.client,
+        hasRejectedAssistant ? "warn" : "debug",
+        hasRejectedAssistant
+          ? "IdleCompactionTurnRejected"
+          : "IdleCompactionSkippedNoCompletedTurn",
+        { sessionId },
+      )
+      return
+    }
+    if (turn.usageTokens < MIN_IDLE_COMPACTION_CONTEXT_TOKENS) {
+      await writeLog(
+        tracker.client,
+        "debug",
+        "IdleCompactionSkippedSmallContext",
+        {
+          sessionId,
+          usageTokens: String(turn.usageTokens),
+          minimumTokens: MIN_IDLE_COMPACTION_CONTEXT_TOKENS,
+        },
       )
       return
     }
@@ -116,7 +138,8 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
     const summarizeResult = await requestSummarize(
       tracker.client,
       sessionId,
-      modelRef,
+      turn.model,
+      false,
     )
     if (summarizeResult.kind === "rejected") {
       await writeLog(tracker.client, "warn", "IdleCompactionRejected", {
@@ -146,7 +169,11 @@ async function compactSession(tracker: IdleTracker, sessionId: SessionId) {
 function resolveCompactorDecision(tracker: IdleTracker): CompactorDecision {
   const configRead = readEssentialsConfig()
   if (configRead.error) {
-    return compactorDecisionBuilder(tracker, tracker.cachedConfig, configRead.error)
+    return compactorDecisionBuilder(
+      tracker,
+      tracker.cachedConfig,
+      configRead.error,
+    )
   }
   tracker.cachedConfig = configRead.config
   return compactorDecisionBuilder(tracker, configRead.config)
@@ -162,10 +189,11 @@ function compactorDecisionBuilder(
     idleAutoCompactorId,
     tracker.defaultIdleTimeoutMs,
   )
-  const isClamped = wantedTimeoutMs > MAX_TIMER_DELAY_MS
+  const idleTimeoutMs = clampIdleTimeoutToTimerDelay(wantedTimeoutMs)
+  const isClamped = idleTimeoutMs !== wantedTimeoutMs
   const decision: CompactorDecision = {
     isEnabled: isFeatureEnabled(config, idleAutoCompactorId),
-    idleTimeoutMs: isClamped ? MAX_TIMER_DELAY_MS : wantedTimeoutMs,
+    idleTimeoutMs,
     readFailure: readFailure,
   }
   if (isClamped) decision.clampedFrom = wantedTimeoutMs
@@ -219,10 +247,7 @@ async function armIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
     )
   }
   if (decision.readFailure) {
-    await logEssentialsConfigReadFailure(
-      tracker.client,
-      decision.readFailure,
-    )
+    await logEssentialsConfigReadFailure(tracker.client, decision.readFailure)
   }
   if (decision.clampedFrom !== undefined) {
     await logIdleTimeoutClamped(tracker, decision.clampedFrom)
@@ -238,10 +263,7 @@ async function startCompaction(tracker: IdleTracker, sessionId: SessionId) {
   state.isSettledThisIdlePeriod = shouldSettlePeriod
   if (!shouldSettlePeriod) return
   if (decision.readFailure) {
-    await logEssentialsConfigReadFailure(
-      tracker.client,
-      decision.readFailure,
-    )
+    await logEssentialsConfigReadFailure(tracker.client, decision.readFailure)
   }
   await compactSession(tracker, sessionId)
 }

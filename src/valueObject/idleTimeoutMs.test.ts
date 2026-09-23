@@ -1,6 +1,10 @@
-import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
+import { describe, it } from "node:test"
+import {
+  clampIdleTimeoutToTimerDelay,
+  MAX_TIMER_DELAY_MS,
+  newIdleTimeoutMs,
+} from "./idleTimeoutMs.ts"
 
 describe("IdleTimeoutMs", () => {
   const accepted: unknown[] = [1, 0.5, 30 * 60 * 1000, 2 ** 31, 2 ** 40]
@@ -28,4 +32,13 @@ describe("IdleTimeoutMs", () => {
       assert.equal(newIdleTimeoutMs(candidate), undefined)
     })
   }
+
+  it("clamps a configured delay to the host timer ceiling", () => {
+    const requestedTimeout = newIdleTimeoutMs(MAX_TIMER_DELAY_MS + 1)
+    assert.ok(requestedTimeout)
+    assert.equal(
+      clampIdleTimeoutToTimerDelay(requestedTimeout),
+      MAX_TIMER_DELAY_MS,
+    )
+  })
 })

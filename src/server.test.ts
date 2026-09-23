@@ -1,13 +1,13 @@
-import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import type { Event } from "@opencode-ai/sdk"
+import { afterEach, beforeEach, describe, it } from "node:test"
 import type { PluginInput } from "@opencode-ai/plugin"
-import { newFeatureId } from "./valueObject/featureId.ts"
-import { writeFeatureEnabled } from "./state.ts"
+import type { Event } from "@opencode-ai/sdk"
 import suite from "./server.ts"
+import { writeFeatureEnabled } from "./state.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
 // requires each file to own its preconditions, even if it duplicates code.
@@ -19,15 +19,15 @@ let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
 beforeEach(() => {
-  previousDataHome = process.env["XDG_DATA_HOME"]
+  previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-test-"))
-  process.env["XDG_DATA_HOME"] = dataHomeTemp
+  process.env.XDG_DATA_HOME = dataHomeTemp
 })
 
 afterEach(() => {
   // "" and unset behave the same: resolveEssentialsStatePath falls back to
   // ~/.local/share for both.
-  process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
+  process.env.XDG_DATA_HOME = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
@@ -47,6 +47,19 @@ function fakeClient() {
               info: {
                 role: "user",
                 model: { providerID: "fake", modelID: "fake-model" },
+              },
+            },
+            {
+              info: {
+                role: "assistant",
+                providerID: "fake",
+                modelID: "fake-model",
+                time: { created: 1, completed: 2 },
+                tokens: {
+                  input: 32_000,
+                  output: 0,
+                  cache: { read: 0, write: 0 },
+                },
               },
             },
           ],

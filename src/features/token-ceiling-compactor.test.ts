@@ -1,17 +1,16 @@
-import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import type { Event, UserMessage } from "@opencode-ai/sdk"
+import { afterEach, beforeEach, describe, it } from "node:test"
 import type { PluginInput } from "@opencode-ai/plugin"
-import type { ContextTokens } from "../valueObject/contextTokens.ts"
+import type { Event, UserMessage } from "@opencode-ai/sdk"
 import {
-  resolveEssentialsStatePath,
   writeFeatureEnabled,
   writeGlobalEnabled,
   writeTokenCeiling,
 } from "../state.ts"
+import type { ContextTokens } from "../valueObject/contextTokens.ts"
 import { tokenCeilingCompactorFeature } from "./token-ceiling-compactor.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
@@ -25,13 +24,13 @@ let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
 beforeEach(() => {
-  previousDataHome = process.env["XDG_DATA_HOME"]
+  previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-test-"))
-  process.env["XDG_DATA_HOME"] = dataHomeTemp
+  process.env.XDG_DATA_HOME = dataHomeTemp
 })
 
 afterEach(() => {
-  process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
+  process.env.XDG_DATA_HOME = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
@@ -79,23 +78,24 @@ function assistantRecord(input: {
     role: "assistant",
     providerID: input.providerID ?? "fake",
     modelID: input.modelID ?? "fake-model",
-    time: input.unfinished
-      ? { created: 1 }
-      : { created: 1, completed: 5 },
+    time: input.unfinished ? { created: 1 } : { created: 1, completed: 5 },
     tokens: input.tokens,
   }
-  if (input.summary !== undefined) info["summary"] = input.summary
+  if (input.summary !== undefined) info.summary = input.summary
   return { info }
 }
 
-function fakeClient(behavior: {
-  assistantRecords?: unknown[]
-  providerContext?: number | null | "error"
-  messagesDelayMs?: number
-  summarizeError?: unknown
-  summarizeThrows?: boolean
-} = {}) {
+function fakeClient(
+  behavior: {
+    assistantRecords?: unknown[]
+    providerContext?: number | null | "error"
+    messagesDelayMs?: number
+    summarizeError?: unknown
+    summarizeThrows?: boolean
+  } = {},
+) {
   const summarizeCalls: Array<{ sessionId: string; modelId: string }> = []
+  const summarizeAutoValues: boolean[] = []
   const logMessages: string[] = []
   let messageReadCount = 0
   const records = behavior.assistantRecords ?? [
@@ -105,6 +105,7 @@ function fakeClient(behavior: {
   return {
     summarizeCalls,
     logMessages,
+    summarizeAutoValues,
     messageReadCount: () => messageReadCount,
     client: {
       session: {
@@ -115,13 +116,14 @@ function fakeClient(behavior: {
         },
         summarize: async (request: {
           path: { id: string }
-          body: { providerID: string; modelID: string }
+          body: { providerID: string; modelID: string; auto?: boolean }
           signal?: unknown
         }) => {
           summarizeCalls.push({
             sessionId: request.path.id,
             modelId: request.body.modelID,
           })
+          summarizeAutoValues.push(request.body.auto ?? false)
           if (behavior.summarizeThrows) {
             throw new Error("connection dropped mid-request")
           }
@@ -194,6 +196,7 @@ describe("token-ceiling-compactor", () => {
     assert.deepEqual(fake.summarizeCalls, [
       { sessionId: "s1", modelId: "fake-model" },
     ])
+    assert.deepEqual(fake.summarizeAutoValues, [true])
     assert.match(fake.logMessages.join("|"), /CeilingCompactionCompleted/)
     await hooks.dispose?.()
   })
@@ -326,10 +329,7 @@ describe("token-ceiling-compactor", () => {
   })
 
   it("prefers the stored ceiling over the plugin option", async () => {
-    writeTokenCeiling(
-      tokenCeilingCompactorFeature.id,
-      5000 as ContextTokens,
-    )
+    writeTokenCeiling(tokenCeilingCompactorFeature.id, 5000 as ContextTokens)
     const fake = fakeClient({
       assistantRecords: [assistantRecord({ tokens: usageTokens(1100, 0) })],
     })
@@ -366,7 +366,9 @@ describe("token-ceiling-compactor", () => {
 
   it("falls back to the built-in default when the option is invalid", async () => {
     const fake = fakeClient({
-      assistantRecords: [assistantRecord({ tokens: usageTokens(200_000, 200_000) })],
+      assistantRecords: [
+        assistantRecord({ tokens: usageTokens(200_000, 200_000) }),
+      ],
     })
     const hooks = await startCeiling(fake, { ceilingTokens: -7 })
 

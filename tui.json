@@ -1,3 +1,13 @@
 {
-  "plugin": ["./src/tui.ts", "./src/idle-clock.tsx"]
+  "plugin": [
+    "./src/tui.ts",
+    [
+      "./src/idle-clock.tsx",
+      {
+        "features": {
+          "idle-auto-compactor": { "idleTimeoutMs": 1800000 }
+        }
+      }
+    ]
+  ]
 }

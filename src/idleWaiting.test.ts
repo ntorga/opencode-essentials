@@ -1,5 +1,5 @@
-import { describe, it } from "node:test"
 import assert from "node:assert/strict"
+import { describe, it } from "node:test"
 import {
   formatIdleDuration,
   resolveIdleAnchorMs,
@@ -107,10 +107,7 @@ describe("resolveIdleAnchorMs", () => {
   })
 
   it("takes the newest completion regardless of order", () => {
-    const messages = clockMessages(
-      assistant(100, 300),
-      assistant(0, 200),
-    )
+    const messages = clockMessages(assistant(100, 300), assistant(0, 200))
     assert.equal(resolveIdleAnchorMs(messages), T0 + 300)
   })
 })
@@ -138,26 +135,64 @@ describe("formatIdleDuration", () => {
 
 describe("resolveIdleClockLine", () => {
   const settled = () => clockMessages(user(0), assistant(10, 20))
+  const compactor = { enabled: true, idleTimeoutMs: 10 * 60_000 }
 
   for (const status of ["busy", "retry", undefined] as const) {
     it(`hides while ${String(status)}`, () => {
-      const line = resolveIdleClockLine(status, settled(), T0 + 5_000)
+      const line = resolveIdleClockLine(
+        status,
+        settled(),
+        T0 + 5_000,
+        compactor,
+      )
       assert.equal(line, undefined)
     })
   }
 
   it("hides when nothing has completed", () => {
     const messages = clockMessages(user(0))
-    assert.equal(resolveIdleClockLine("idle", messages, T0 + 5_000), undefined)
+    assert.equal(
+      resolveIdleClockLine("idle", messages, T0 + 5_000, compactor),
+      undefined,
+    )
   })
 
-  it("counts the wait since the last completion", () => {
-    const line = resolveIdleClockLine("idle", settled(), T0 + 320_000)
-    assert.equal(line, "idle 5m 19s")
+  it("shows elapsed time and the local time when idle began", () => {
+    const line = resolveIdleClockLine(
+      "idle",
+      settled(),
+      T0 + 320_000,
+      compactor,
+    )
+    assert.deepEqual(line, {
+      text: `idle 5m 19s · since ${new Date(T0 + 20).toLocaleString(undefined, {
+        dateStyle: "short",
+        timeStyle: "short",
+      })}`,
+      color: "warning",
+    })
+  })
+
+  it("turns red at eighty percent of the compactor timeout", () => {
+    const line = resolveIdleClockLine(
+      "idle",
+      settled(),
+      T0 + 8 * 60_000 + 20,
+      compactor,
+    )
+    assert.equal(line?.color, "error")
+  })
+
+  it("keeps the counter muted when the idle compactor is disabled", () => {
+    const line = resolveIdleClockLine("idle", settled(), T0 + 8 * 60_000 + 20, {
+      ...compactor,
+      enabled: false,
+    })
+    assert.equal(line?.color, "muted")
   })
 
   it("hides a negative elapsed from a clock disagreement", () => {
-    const line = resolveIdleClockLine("idle", settled(), T0 - 1)
+    const line = resolveIdleClockLine("idle", settled(), T0 - 1, compactor)
     assert.equal(line, undefined)
   })
 })

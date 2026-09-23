@@ -1,31 +1,31 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
-import { requestSummarize, type SummarizeResult } from "./sessionSummarizer.ts"
-import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
-import { writeLog } from "../log.ts"
 import {
   clampCeilingToModel,
   resolveCeilingTurn,
   resolveProviderContextLimit,
 } from "../contextCeiling.ts"
+import { writeLog } from "../log.ts"
+import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
 import {
   isFeatureEnabled,
   logEssentialsConfigReadFailure,
   readEssentialsConfig,
   resolveEffectiveTokenCeiling,
 } from "../state.ts"
-import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
-import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
-import type { FeatureId } from "../valueObject/featureId.ts"
 import type { ContextTokens } from "../valueObject/contextTokens.ts"
 import {
   DEFAULT_TOKEN_CEILING,
   MAX_TOKEN_CEILING,
   newContextTokens,
 } from "../valueObject/contextTokens.ts"
+import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
+import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
+import type { FeatureId } from "../valueObject/featureId.ts"
 import type { ModelRef } from "../valueObject/modelRef.ts"
 import type { SessionId } from "../valueObject/sessionId.ts"
 import { newSessionId } from "../valueObject/sessionId.ts"
+import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { requestSummarize, type SummarizeResult } from "./sessionSummarizer.ts"
 
 const tokenCeilingCompactorId: FeatureId =
   "token-ceiling-compactor" as FeatureId
@@ -108,10 +108,7 @@ async function logSummarizeResult(
 // not escape into the event fan-out, where it would skip every later
 // feature's handler. Each read maps a throw to the same failure log as an
 // error response and abandons this turn's check.
-async function readTurn(
-  tracker: CeilingTracker,
-  sessionId: SessionId,
-) {
+async function readTurn(tracker: CeilingTracker, sessionId: SessionId) {
   try {
     const messagesResponse = await tracker.client.session.messages({
       path: { id: sessionId },
@@ -220,6 +217,7 @@ async function runCeilingCheck(
     tracker.client,
     sessionId,
     turn.model,
+    true,
   )
   await logSummarizeResult(tracker.client, sessionId, summarizeResult)
 }
@@ -229,10 +227,7 @@ async function runCeilingCheck(
 // and the state-file read is synchronous so no window opens. The check
 // itself detaches — like the idle compactor's timer callback — because a
 // stalled server read must not hold the event fan-out for other features.
-async function onSessionIdle(
-  tracker: CeilingTracker,
-  sessionId: SessionId,
-) {
+async function onSessionIdle(tracker: CeilingTracker, sessionId: SessionId) {
   const existingState = tracker.sessions.get(sessionId)
   if (existingState?.isSettledThisIdlePeriod) return
   const decision = resolveCeilingDecision(tracker)

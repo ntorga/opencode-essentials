@@ -13,10 +13,15 @@ export const DEFAULT_IDLE_TIMEOUT_MS = (30 * 60 * 1000) as IdleTimeoutMs
 // value that needs clamping. 2^31-1 ms is about 24.8 days.
 export const MAX_TIMEOUT_MINUTES = Math.floor(MAX_TIMER_DELAY_MS / 60_000)
 
-export function newIdleTimeoutMs(
-  rawValue: unknown,
-): IdleTimeoutMs | undefined {
+export function newIdleTimeoutMs(rawValue: unknown): IdleTimeoutMs | undefined {
   if (typeof rawValue !== "number") return undefined
   if (!Number.isFinite(rawValue) || rawValue <= 0) return undefined
   return rawValue as IdleTimeoutMs
+}
+
+export function clampIdleTimeoutToTimerDelay(
+  requestedTimeoutMs: IdleTimeoutMs,
+): IdleTimeoutMs {
+  if (requestedTimeoutMs > MAX_TIMER_DELAY_MS) return MAX_TIMER_DELAY_MS
+  return requestedTimeoutMs
 }
