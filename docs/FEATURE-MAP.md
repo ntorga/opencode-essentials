@@ -10,7 +10,7 @@ Compacts an OpenCode session automatically after the session stays continuously 
 
 1. `src/server.ts` — server entry. Builds each feature's hooks from per-feature options and fans them out via `combineHooks`.
 2. `src/features/registry.ts` — lists the `idle-auto-compactor` `SuiteFeature` for both entry points.
-3. `src/features/idle-auto-compactor.ts` — the feature. Subscribes to `session.status` and `session.deleted`. An idle status arms a one-shot timer; a busy status cancels it; a genuine `chat.message` reopens the idle period. When the timer fires, it reads the session messages, picks the last user message's model, and calls `session.summarize`. The state machine absorbs the compaction's own busy/idle echoes.
+3. `src/features/idle-auto-compactor.ts` — the feature. Subscribes to `session.status` and `session.deleted`. An idle status arms a one-shot timer; a busy status cancels it; a genuine `chat.message` reopens the idle period. When the timer fires, it skips a last compaction and a newest real turn under 32,000 tokens. It summarizes with the measured turn's model. The state machine absorbs the compaction's own busy/idle echoes.
 4. `src/state.ts` — the shared config protocol. The server reads `$XDG_DATA_HOME/opencode/essentials.json` at each decision point: the master switch gates the feature, and the file's timeout setting overrides the plugin option.
 5. `src/valueObject/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `new*` constructor before use.
 6. `src/tui.ts` — TUI companion, registered in `tui.json` (the TUI host does
@@ -40,7 +40,8 @@ runtime.
    turn (usage tokens + model ref, skipping summary turns), read the model's
    context window from the provider list, clamp the ceiling to it.
 3. `src/features/sessionSummarizer.ts` — the shared `session.summarize`
-   request (deadline, error mapping); used by both compactors.
+   request (deadline, error mapping); idle compaction stays manual, while
+   token-ceiling compaction asks OpenCode to continue after its summary.
 4. `src/valueObject/contextTokens.ts` — the validated token ceiling:
    presets 128k–1M, default 384k, hard max 2,000,000.
 5. `src/state.ts` + `src/valueObject/essentialsConfig.ts` — the
@@ -53,22 +54,27 @@ runtime.
 
 Shows how long the open session has been idle — the time since the model
 stopped answering and left the floor to the user — as one line at the bottom
-of the TUI (for example `idle 3m 12s`). It is feature 3 of the essentials
-suite and is toggled at runtime from the same `/essentials` dialog. It is a
-TUI-only feature: it has no server hooks.
+of the TUI. It includes the local idle start date and time. It turns yellow
+at half of the idle auto-compactor timeout and red at 80 percent. It is
+feature 3 of the essentials suite and is toggled at runtime from the same
+`/essentials` dialog.
+It is a TUI-only feature: it has no server hooks.
 
 **Flow:**
 
 1. `src/idle-clock.tsx` — a second TUI entry, registered in `tui.json`. It
    registers a host `app_bottom` slot through `api.slots.register`. A 1-second
-   Solid signal drives the tick.
+   Solid signal drives the tick. The TUI plugin option supplies the server's
+   default idle timeout; a state-file timeout overrides it. The entry applies
+   the shared timer ceiling from `src/valueObject/idleTimeoutMs.ts`.
 2. `src/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
-   the auto-compactor's summary turn — and formats the elapsed wait. It
-   hides the line unless the session status is `idle`.
-3. `src/state.ts` — reads the master switch and the `idle-clock` flag from the
-   shared state file each tick, so a `/essentials` toggle takes effect without
-   a restart.
+   the auto-compactor's summary turn — and formats elapsed time, local start
+   date and time, and timer color. It hides the line unless the session status
+   is `idle`.
+3. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
+   compactor flag, and the timeout override from the shared state file each
+   tick, so `/essentials` changes take effect without a restart.
 4. `src/features/idle-clock.ts` — the `SuiteFeature` entry (no `buildHooks`),
    which lists the feature in the dialog and gates the master switch.
 5. `src/valueObject/timestampMs.ts` — the trust boundary for the message and
@@ -76,9 +82,38 @@ TUI-only feature: it has no server hooks.
 
 ---
 
-## Exec Wrapper Blind Spot (planned)
+## Exec Wrapper Guard
 
-Closes the bash permission blind spot where prefix executors (`timeout`, `nohup`, `bash -c`, `mise exec`, `direnv exec`) hide the inner command from opencode's permission tiers. Planned as another feature in the same essentials bundle. Not yet implemented; the code path is not traceable. Roadmap item 2 in `TODO.md`.
+Checks inner commands hidden by natural bash wrappers against agent bash
+permission rules.
+
+**Flow:**
+
+1. `.opencode/plugins/exec-wrapper-guard.ts` — OpenCode auto-loader. It
+   re-exports the plugin from the source module.
+2. `src/exec-wrapper-guard.ts` — inspects wrapped bash commands and checks
+   inner commands against agent bash permission rules in `opencode.json`.
+3. `src/exec-wrapper-guard.test.ts` — verifies wrapper checks, permission
+   results, failure handling, ignored tools, and config reloads.
+
+Ask rules cannot open a prompt from this hook. The plugin tells the user to
+run an ask command unwrapped. Interpreter code, script files, `make`, `npm run`,
+`xargs`, and `parallel` remain outside this text-layer guard.
+
+---
+
+## Sub-agent Timestamps
+
+Task rows in the OpenCode TUI show the local date and time when a sub-agent
+starts and finishes.
+
+**Flow:**
+
+1. `tmp/opencode-src/packages/tui/src/routes/session/index.tsx` — reads the
+   task tool's start and finish timestamps and formats them with the TUI's
+   locale helper.
+2. `tmp/opencode-src/packages/tui/test/cli/tui/inline-tool-wrap-snapshot.test.tsx`
+   — verifies the displayed timestamp format.
 
 ---
 

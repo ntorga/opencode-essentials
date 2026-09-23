@@ -50,9 +50,9 @@ configurable per project.
   period can trigger the next compaction.
 - Timers and state are tracked per session. `session.deleted` and plugin
   shutdown clear them.
-- The compaction uses the model of the session's last user message. A
-  session is skipped when it has no user message or that message carries
-  no model.
+- The compaction uses the newest completed real answer's model. It skips a
+  session after a compaction message and when that answer used fewer than
+  32000 context tokens.
 
 ### Token Ceiling Compactor
 
@@ -75,7 +75,9 @@ the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
   not small.
 - The measurement never uses the compactor's own summary turn, and the
   compaction runs through the official `session.summarize` API with the
-  model of the measured turn.
+  model of the measured turn. The token-ceiling request asks OpenCode to
+  continue after the summary, so the model does not stop on the compact
+  message.
 - The master switch, the **Token Ceiling Compactor** row, and the
   **token ceiling** picker in `/essentials` control it without a restart.
   The `ceilingTokens` plugin option sets a per-project default below the
@@ -84,9 +86,9 @@ the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
 ### Idle Session Clock
 
 Shows one line at the bottom of the screen while the open session waits for
-your input, for example `idle 3m 12s`. It is a TUI-only feature: it renders
-inside the OpenCode TUI from the host's synced state, so it has no server
-hooks.
+your input, for example `idle 3m 12s · since 9/22/26, 10:20 AM`. It is a
+TUI-only feature: it renders inside the OpenCode TUI from the host's synced
+state, so it has no server hooks.
 
 - The clock anchors on the completion of the newest real assistant answer —
   the moment the model stopped answering. It counts up from there.
@@ -94,6 +96,10 @@ hooks.
   automatic compaction does not reset your displayed wait to zero.
 - The line is hidden while the session is `busy` or `retry`, while the
   transcript has no finished answer yet, and on the home route.
+- When the Idle Auto Compactor is enabled, the line turns yellow at half of
+  its timeout and red at 80 percent. The clock reads the timeout from the
+  shared state file, then the TUI plugin option. Keep the TUI plugin option
+  in `tui.json` aligned with the server plugin option in `opencode.json`.
 - It re-derives the wait from synced message state each second, so it needs
   no event subscription, and a session already idle when the TUI started
   shows its true elapsed wait.
@@ -122,11 +128,24 @@ Register the server entry in `opencode.json`:
 }
 ```
 
+Set the idle-clock plugin timeout in `tui.json` to the same value as the
+server plugin timeout. The default is `1800000` milliseconds in both files.
+
 Register the TUI entries in `tui.json`:
 
 ```json
 {
-  "plugin": ["./src/tui.ts", "./src/idle-clock.tsx"]
+  "plugin": [
+    "./src/tui.ts",
+    [
+      "./src/idle-clock.tsx",
+      {
+        "features": {
+          "idle-auto-compactor": { "idleTimeoutMs": 1800000 }
+        }
+      }
+    ]
+  ]
 }
 ```
 
@@ -265,10 +284,10 @@ npm run typecheck # tsc --noEmit
 7. Enable only the Token Ceiling Compactor with a low ceiling (e.g.
    `{"ceilingTokens": 2000}` in the state file). Send one prompt: the
    finished turn's usage passes the ceiling and the session compacts once,
-   right after the reply. Answer again: it compacts once more, never twice
-   per turn.
-8. Watch the bottom line while the session waits: it ticks once a second
-   and shows `idle 0s` right after a reply. Send a prompt: the line
+   then the model continues after the summary. Answer again: it compacts once
+   more, never twice per turn.
+8. Watch the bottom line while the session waits. It ticks once a second and
+   shows the elapsed wait and idle start date. Send a prompt: the line
    disappears while the model answers and returns counting the new wait.
 9. Type `/essentials` and disable **Idle Session Clock**: the line
    disappears within a second. Re-enable: it returns with the true elapsed
