@@ -1,5 +1,5 @@
-import { describe, it } from "node:test"
 import assert from "node:assert/strict"
+import { describe, it } from "node:test"
 import {
   clampCeilingToModel,
   resolveCeilingTurn,
@@ -9,27 +9,32 @@ import type { ContextTokens } from "./valueObject/contextTokens.ts"
 import { newModelId } from "./valueObject/modelId.ts"
 import { newProviderId } from "./valueObject/providerId.ts"
 
-function assistantTurn(input: {
-  tokens?: unknown
-  unfinished?: boolean
-  summary?: boolean
-  providerID?: string
-  modelID?: string
-} = {}) {
+function assistantTurn(
+  input: {
+    tokens?: unknown
+    unfinished?: boolean
+    summary?: boolean
+    providerID?: string
+    modelID?: string
+  } = {},
+) {
   const info: Record<string, unknown> = {
     role: "assistant",
     providerID: input.providerID ?? "anthropic",
     modelID: input.modelID ?? "claude-x",
-    time: input.unfinished
-      ? { created: 1 }
-      : { created: 1, completed: 5 },
+    time: input.unfinished ? { created: 1 } : { created: 1, completed: 5 },
   }
-  if (input.tokens !== undefined) info["tokens"] = input.tokens
-  if (input.summary !== undefined) info["summary"] = input.summary
+  if (input.tokens !== undefined) info.tokens = input.tokens
+  if (input.summary !== undefined) info.summary = input.summary
   return { info }
 }
 
-function fullTokens(input: number, output: number, read: number, write: number) {
+function fullTokens(
+  input: number,
+  output: number,
+  read: number,
+  write: number,
+) {
   return { input, output, reasoning: 9, cache: { read, write } }
 }
 
@@ -116,38 +121,54 @@ describe("resolveCeilingTurn", () => {
 describe("resolveProviderContextLimit", () => {
   const providerList = {
     all: [
-      { id: "anthropic", models: { "claude-x": { limit: { context: 200000 } } } },
+      {
+        id: "anthropic",
+        models: { "claude-x": { limit: { context: 200000 } } },
+      },
       { id: "openai", models: { "gpt-y": { limit: { context: 1_047_152 } } } },
     ],
   }
 
-  const openai = newProviderId("openai")!
-  const google = newProviderId("google")!
-  const gptY = newModelId("gpt-y")!
-  const missingModel = newModelId("missing")!
+  const openai = newProviderId("openai")
+  assert.ok(openai)
+  const google = newProviderId("google")
+  assert.ok(google)
+  const gptY = newModelId("gpt-y")
+  assert.ok(gptY)
+  const missingModel = newModelId("missing")
+  assert.ok(missingModel)
 
   it("finds the limit by provider and model id", () => {
-    assert.equal(resolveProviderContextLimit(providerList, openai, gptY),
-      1_047_152,)
+    assert.equal(
+      resolveProviderContextLimit(providerList, openai, gptY),
+      1_047_152,
+    )
   })
 
   it("returns undefined when provider or model is absent", () => {
-    assert.equal(resolveProviderContextLimit(providerList, google, gptY),
-      undefined,)
-    assert.equal(resolveProviderContextLimit(providerList, openai, missingModel),
-      undefined,)
+    assert.equal(
+      resolveProviderContextLimit(providerList, google, gptY),
+      undefined,
+    )
+    assert.equal(
+      resolveProviderContextLimit(providerList, openai, missingModel),
+      undefined,
+    )
   })
 
   it("returns undefined for malformed provider payloads", () => {
-    assert.equal(resolveProviderContextLimit(undefined, openai, gptY),
-      undefined,)
-    assert.equal(resolveProviderContextLimit({ all: "no" }, openai, gptY),
-      undefined,)
+    assert.equal(
+      resolveProviderContextLimit(undefined, openai, gptY),
+      undefined,
+    )
+    assert.equal(
+      resolveProviderContextLimit({ all: "no" }, openai, gptY),
+      undefined,
+    )
     const broken = {
       all: [{ id: "openai", models: { "gpt-y": { limit: { context: NaN } } } }],
     }
-    assert.equal(resolveProviderContextLimit(broken, openai, gptY),
-      undefined,)
+    assert.equal(resolveProviderContextLimit(broken, openai, gptY), undefined)
   })
 })
 

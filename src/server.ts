@@ -4,12 +4,12 @@ import type {
   PluginInput,
   PluginModule,
 } from "@opencode-ai/plugin"
+import { FEATURES } from "./features/registry.ts"
+import { combineHooks } from "./hooks.ts"
+import { writeLog } from "./log.ts"
 import type { FeatureId } from "./valueObject/featureId.ts"
 import { newFeatureId } from "./valueObject/featureId.ts"
 import { isRecord } from "./valueObject/util.ts"
-import { combineHooks } from "./hooks.ts"
-import { FEATURES } from "./features/registry.ts"
-import { writeLog } from "./log.ts"
 
 async function filterValidFeatureOptions(
   input: PluginInput,

@@ -8,9 +8,7 @@ export type TimestampMs = ValidatedNumber<"TimestampMs">
 
 const MIN_PLAUSIBLE_EPOCH_MS = 978_307_200_000
 
-export function newTimestampMs(
-  rawValue: unknown,
-): TimestampMs | undefined {
+export function newTimestampMs(rawValue: unknown): TimestampMs | undefined {
   if (typeof rawValue !== "number") return undefined
   if (!Number.isFinite(rawValue)) return undefined
   if (rawValue < MIN_PLAUSIBLE_EPOCH_MS) return undefined

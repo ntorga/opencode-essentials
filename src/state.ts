@@ -8,18 +8,18 @@ import {
 } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
-import type { FeatureId } from "./valueObject/featureId.ts"
+import type { PluginInput } from "@opencode-ai/plugin"
+import { writeLog } from "./log.ts"
+import { newAbsolutePath } from "./valueObject/absolutePath.ts"
+import type { ContextTokens } from "./valueObject/contextTokens.ts"
 import type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
 import {
   newDefaultEssentialsConfig,
   parseEssentialsConfig,
   serializeEssentialsConfig,
 } from "./valueObject/essentialsConfig.ts"
+import type { FeatureId } from "./valueObject/featureId.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
-import type { ContextTokens } from "./valueObject/contextTokens.ts"
-import type { PluginInput } from "@opencode-ai/plugin"
-import { writeLog } from "./log.ts"
-import { newAbsolutePath } from "./valueObject/absolutePath.ts"
 
 export type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
 
@@ -32,7 +32,7 @@ const MAX_STATE_FILE_BYTES = 64 * 1024
 
 export function resolveEssentialsStatePath(): string {
   const fallbackDataHome = path.join(homedir(), ".local", "share")
-  const configuredDataHome = newAbsolutePath(process.env["XDG_DATA_HOME"])
+  const configuredDataHome = newAbsolutePath(process.env.XDG_DATA_HOME)
   const dataHome = configuredDataHome ?? fallbackDataHome
   return path.join(dataHome, "opencode", "essentials.json")
 }
@@ -158,9 +158,7 @@ function writeStateFileAtomically(filePath: string, payload: string) {
   }
 }
 
-function mutateEssentialsConfig(
-  mutate: (config: EssentialsConfig) => void,
-) {
+function mutateEssentialsConfig(mutate: (config: EssentialsConfig) => void) {
   const filePath = resolveEssentialsStatePath()
   const configRead = readStateFile(filePath)
   if (configRead.error) {
@@ -178,10 +176,7 @@ function mutateEssentialsConfig(
   writeStateFileAtomically(filePath, payload)
 }
 
-export function writeFeatureEnabled(
-  featureId: FeatureId,
-  enabled: boolean,
-) {
+export function writeFeatureEnabled(featureId: FeatureId, enabled: boolean) {
   mutateEssentialsConfig((config) => {
     config.states[featureId] = enabled
   })

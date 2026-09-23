@@ -1,5 +1,5 @@
-import type { SuiteFeature } from "./feature.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
+import type { SuiteFeature } from "./feature.ts"
 
 // The idle clock is TUI-only: it renders inside the TUI process from the
 // host's synced state, so the entry carries no buildHooks and the server

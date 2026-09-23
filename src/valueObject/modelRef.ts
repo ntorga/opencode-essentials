@@ -1,6 +1,6 @@
 import type { ModelId } from "./modelId.ts"
-import type { ProviderId } from "./providerId.ts"
 import { newModelId } from "./modelId.ts"
+import type { ProviderId } from "./providerId.ts"
 import { newProviderId } from "./providerId.ts"
 import { isRecord } from "./util.ts"
 

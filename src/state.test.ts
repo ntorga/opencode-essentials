@@ -1,25 +1,30 @@
-import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
 import {
-  chmodSync, mkdirSync, mkdtempSync,
-  readdirSync, readFileSync, rmSync, writeFileSync,
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import type { FeatureId } from "./valueObject/featureId.ts"
-import { newFeatureId } from "./valueObject/featureId.ts"
-import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
-import { newIdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import { afterEach, beforeEach, describe, it } from "node:test"
 import {
-  resolveEffectiveIdleTimeoutMs,
+  clearIdleTimeoutMs,
   isFeatureEnabled,
   readEssentialsConfig,
+  resolveEffectiveIdleTimeoutMs,
   resolveEssentialsStatePath,
   writeFeatureEnabled,
   writeGlobalEnabled,
   writeIdleTimeoutMs,
-  clearIdleTimeoutMs,
 } from "./state.ts"
+import type { FeatureId } from "./valueObject/featureId.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
+import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import { newIdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
 // requires each file to own its preconditions, even if it duplicates code.
@@ -45,13 +50,13 @@ let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
 beforeEach(() => {
-  previousDataHome = process.env["XDG_DATA_HOME"]
+  previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-state-"))
-  process.env["XDG_DATA_HOME"] = dataHomeTemp
+  process.env.XDG_DATA_HOME = dataHomeTemp
 })
 
 afterEach(() => {
-  process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
+  process.env.XDG_DATA_HOME = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
@@ -159,8 +164,9 @@ describe("essentials config file", () => {
 
   it("leaves no temporary file behind after a write", () => {
     writeFeatureEnabled(trustedFeatureId("idle-auto-compactor"), false)
-    const leftovers = readdirSync(path.dirname(resolveEssentialsStatePath()))
-      .filter((name) => name.endsWith(".tmp"))
+    const leftovers = readdirSync(
+      path.dirname(resolveEssentialsStatePath()),
+    ).filter((name) => name.endsWith(".tmp"))
     assert.deepEqual(leftovers, [])
   })
 

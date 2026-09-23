@@ -1,13 +1,11 @@
-import { describe, it, afterEach, beforeEach } from "node:test"
 import assert from "node:assert/strict"
-import {
-  mkdirSync, mkdtempSync, rmSync, writeFileSync,
-} from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { afterEach, beforeEach, describe, it } from "node:test"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import { readEssentialsConfig, resolveEssentialsStatePath } from "./state.ts"
 import { FEATURES } from "./features/registry.ts"
+import { readEssentialsConfig, resolveEssentialsStatePath } from "./state.ts"
 import tuiEntry from "./tui.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
@@ -77,15 +75,15 @@ let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
 beforeEach(() => {
-  previousDataHome = process.env["XDG_DATA_HOME"]
+  previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-test-"))
-  process.env["XDG_DATA_HOME"] = dataHomeTemp
+  process.env.XDG_DATA_HOME = dataHomeTemp
 })
 
 afterEach(() => {
   // "" and unset behave the same: resolveEssentialsStatePath falls back to
   // ~/.local/share for both.
-  process.env["XDG_DATA_HOME"] = previousDataHome ?? ""
+  process.env.XDG_DATA_HOME = previousDataHome ?? ""
   rmSync(dataHomeTemp, { recursive: true, force: true })
 })
 
@@ -219,20 +217,14 @@ describe("essentials tui companion", () => {
     assert.equal(config.timeouts[FEATURES[0].id], 900_000)
     assert.match(fake.toastMessages.join("|"), /15 min/)
     assert.equal(fake.openedDialogs[2]?.title, "OpenCode Essentials")
-    assert.equal(
-      fake.openedDialogs[2]?.options[4]?.footer,
-      "15 min (stored)",
-    )
+    assert.equal(fake.openedDialogs[2]?.options[4]?.footer, "15 min (stored)")
   })
 
   it("keeps the 30 min default footer when nothing is configured", async () => {
     const fake = fakeTuiApi()
     await openMainDialog(fake)
 
-    assert.equal(
-      fake.openedDialogs[0]?.options[4]?.footer,
-      "30 min (default)",
-    )
+    assert.equal(fake.openedDialogs[0]?.options[4]?.footer, "30 min (default)")
   })
 
   it("labels a sub-minute timeout as under a minute", async () => {
@@ -306,10 +298,7 @@ describe("essentials tui companion", () => {
     fake.openedDialogs[3]?.onSelect({ value: "$clear" })
 
     assert.deepEqual({ ...readEssentialsConfig().config.timeouts }, {})
-    assert.equal(
-      fake.openedDialogs[4]?.options[4]?.footer,
-      "30 min (default)",
-    )
+    assert.equal(fake.openedDialogs[4]?.options[4]?.footer, "30 min (default)")
   })
 
   it("opens the ceiling submenu from the ceiling row", async () => {
@@ -340,15 +329,9 @@ describe("essentials tui companion", () => {
     })
     fake.openedDialogs[1]?.onSelect({ value: 128000 })
 
-    assert.equal(
-      readEssentialsConfig().config.ceilings[FEATURES[1].id],
-      128000,
-    )
+    assert.equal(readEssentialsConfig().config.ceilings[FEATURES[1].id], 128000)
     assert.match(fake.toastMessages.join("|"), /128k/)
-    assert.equal(
-      fake.openedDialogs[2]?.options[5]?.footer,
-      "128k (stored)",
-    )
+    assert.equal(fake.openedDialogs[2]?.options[5]?.footer, "128k (stored)")
 
     fake.openedDialogs[2]?.onSelect({
       value: "$ceiling:token-ceiling-compactor",
@@ -379,10 +362,7 @@ describe("essentials tui companion", () => {
 
     fake.openedPrompts[0]?.onConfirm("999000")
 
-    assert.equal(
-      readEssentialsConfig().config.ceilings[FEATURES[1].id],
-      999000,
-    )
+    assert.equal(readEssentialsConfig().config.ceilings[FEATURES[1].id], 999000)
     assert.match(fake.toastMessages.join("|"), /999k/)
   })
 
@@ -420,10 +400,7 @@ describe("essentials tui companion", () => {
     fake.openedDialogs[3]?.onSelect({ value: "$clear-ceiling" })
 
     assert.deepEqual({ ...readEssentialsConfig().config.ceilings }, {})
-    assert.equal(
-      fake.openedDialogs[4]?.options[5]?.footer,
-      "384k (default)",
-    )
+    assert.equal(fake.openedDialogs[4]?.options[5]?.footer, "384k (default)")
   })
 
   it("returns to the main dialog when the prompt is cancelled", async () => {
@@ -457,10 +434,7 @@ describe("essentials tui companion", () => {
     const fake = fakeTuiApi()
     await openMainDialog(fake)
 
-    assert.match(
-      fake.toastMessages.join("|"),
-      /EssentialsConfigReadFailed/,
-    )
+    assert.match(fake.toastMessages.join("|"), /EssentialsConfigReadFailed/)
     assert.equal(fake.openedDialogs[0]?.options[0]?.footer, "enabled")
   })
 })

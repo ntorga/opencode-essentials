@@ -1,11 +1,11 @@
+import type { ContextTokens } from "./contextTokens.ts"
+import { newContextTokens } from "./contextTokens.ts"
 import type { FeatureId } from "./featureId.ts"
 import { newFeatureId } from "./featureId.ts"
 import type { FeatureStates } from "./featureStates.ts"
 import { newFeatureStates } from "./featureStates.ts"
 import type { IdleTimeoutMs } from "./idleTimeoutMs.ts"
 import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
-import type { ContextTokens } from "./contextTokens.ts"
-import { newContextTokens } from "./contextTokens.ts"
 import { isRecord } from "./util.ts"
 
 export const ESSENTIALS_CONFIG_VERSION = 1
@@ -69,19 +69,17 @@ function newFeatureSettings(
 function newVersionedConfig(
   rawDocument: Record<string, unknown>,
 ): EssentialsConfig | undefined {
-  if (rawDocument["version"] !== ESSENTIALS_CONFIG_VERSION) return undefined
+  if (rawDocument.version !== ESSENTIALS_CONFIG_VERSION) return undefined
   const config = newDefaultEssentialsConfig()
-  if (rawDocument["enabled"] !== undefined) {
-    if (typeof rawDocument["enabled"] !== "boolean") return undefined
-    config.isEnabled = rawDocument["enabled"]
+  if (rawDocument.enabled !== undefined) {
+    if (typeof rawDocument.enabled !== "boolean") return undefined
+    config.isEnabled = rawDocument.enabled
   }
-  const rawFeatures = rawDocument["features"]
-  const states = newFeatureStates(
-    rawFeatures === undefined ? {} : rawFeatures,
-  )
+  const rawFeatures = rawDocument.features
+  const states = newFeatureStates(rawFeatures === undefined ? {} : rawFeatures)
   if (states === undefined) return undefined
   config.states = states
-  const settings = newFeatureSettings(rawDocument["settings"])
+  const settings = newFeatureSettings(rawDocument.settings)
   if (settings === undefined) return undefined
   config.timeouts = settings.timeouts
   config.ceilings = settings.ceilings

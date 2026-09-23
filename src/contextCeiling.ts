@@ -1,11 +1,11 @@
-import { isRecord } from "./valueObject/util.ts"
 import type { ContextTokens } from "./valueObject/contextTokens.ts"
 import { newContextTokens } from "./valueObject/contextTokens.ts"
 import type { ModelId } from "./valueObject/modelId.ts"
+import { newModelId } from "./valueObject/modelId.ts"
 import type { ModelRef } from "./valueObject/modelRef.ts"
 import type { ProviderId } from "./valueObject/providerId.ts"
-import { newModelId } from "./valueObject/modelId.ts"
 import { newProviderId } from "./valueObject/providerId.ts"
+import { isRecord } from "./valueObject/util.ts"
 
 // The measured context of the newest answer, ready for ceiling comparison.
 export type CeilingTurn = {
@@ -40,20 +40,18 @@ function sumFiniteNumbers(values: unknown[]): number | undefined {
 // are absent here too.
 function measureTokens(rawTokens: unknown): number | undefined {
   if (!isRecord(rawTokens)) return undefined
-  const cache = isRecord(rawTokens["cache"]) ? rawTokens["cache"] : {}
+  const cache = isRecord(rawTokens.cache) ? rawTokens.cache : {}
   return sumFiniteNumbers([
-    rawTokens["input"],
-    rawTokens["output"],
-    cache["read"],
-    cache["write"],
+    rawTokens.input,
+    rawTokens.output,
+    cache.read,
+    cache.write,
   ])
 }
 
-function readModelPair(
-  rawInfo: Record<string, unknown>,
-): ModelRef | undefined {
-  const providerId = newProviderId(rawInfo["providerID"])
-  const modelId = newModelId(rawInfo["modelID"])
+function readModelPair(rawInfo: Record<string, unknown>): ModelRef | undefined {
+  const providerId = newProviderId(rawInfo.providerID)
+  const modelId = newModelId(rawInfo.modelID)
   if (!providerId || !modelId) return undefined
   return { providerId, modelId }
 }
@@ -72,14 +70,14 @@ export function resolveCeilingTurn(
   if (!Array.isArray(rawMessages)) return undefined
   for (let position = rawMessages.length - 1; position >= 0; position--) {
     const entry = rawMessages[position]
-    if (!isRecord(entry) || !isRecord(entry["info"])) continue
-    const info = entry["info"]
-    if (info["role"] !== "assistant") continue
-    if (info["summary"] === true) continue
-    if (!isRecord(info["time"])) continue
-    if (typeof info["time"]["completed"] !== "number") continue
+    if (!isRecord(entry) || !isRecord(entry.info)) continue
+    const info = entry.info
+    if (info.role !== "assistant") continue
+    if (info.summary === true) continue
+    if (!isRecord(info.time)) continue
+    if (typeof info.time.completed !== "number") continue
     const model = readModelPair(info)
-    const usageTokens = measureTokens(info["tokens"])
+    const usageTokens = measureTokens(info.tokens)
     if (!model || usageTokens === undefined) return undefined
     return { model, usageTokens }
   }
@@ -94,15 +92,15 @@ export function resolveProviderContextLimit(
   providerId: ProviderId,
   modelId: ModelId,
 ): number | undefined {
-  if (!isRecord(rawProviderList) || !Array.isArray(rawProviderList["all"])) {
+  if (!isRecord(rawProviderList) || !Array.isArray(rawProviderList.all)) {
     return undefined
   }
-  for (const rawProvider of rawProviderList["all"]) {
-    if (!isRecord(rawProvider) || rawProvider["id"] !== providerId) continue
-    if (!isRecord(rawProvider["models"])) return undefined
-    const rawModel = rawProvider["models"][modelId]
-    if (!isRecord(rawModel) || !isRecord(rawModel["limit"])) return undefined
-    const context = rawModel["limit"]["context"]
+  for (const rawProvider of rawProviderList.all) {
+    if (!isRecord(rawProvider) || rawProvider.id !== providerId) continue
+    if (!isRecord(rawProvider.models)) return undefined
+    const rawModel = rawProvider.models[modelId]
+    if (!isRecord(rawModel) || !isRecord(rawModel.limit)) return undefined
+    const context = rawModel.limit.context
     if (typeof context !== "number" || !Number.isFinite(context)) {
       return undefined
     }
@@ -124,10 +122,7 @@ export function clampCeilingToModel(
   requested: ContextTokens,
   contextLimit: number | undefined,
 ): CeilingClamp {
-  if (
-    contextLimit === undefined ||
-    contextLimit < MIN_PLAUSIBLE_MODEL_WINDOW
-  ) {
+  if (contextLimit === undefined || contextLimit < MIN_PLAUSIBLE_MODEL_WINDOW) {
     return { ceiling: requested }
   }
   const flooredLimit = newContextTokens(Math.floor(contextLimit))

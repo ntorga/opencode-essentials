@@ -5,21 +5,6 @@ import type {
 } from "@opencode-ai/plugin/tui"
 import type { SuiteFeature } from "./features/feature.ts"
 import { FEATURES } from "./features/registry.ts"
-import type { FeatureId } from "./valueObject/featureId.ts"
-import { newFeatureId } from "./valueObject/featureId.ts"
-import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
-import {
-  DEFAULT_IDLE_TIMEOUT_MS,
-  MAX_TIMEOUT_MINUTES,
-  newIdleTimeoutMs,
-} from "./valueObject/idleTimeoutMs.ts"
-import type { ContextTokens } from "./valueObject/contextTokens.ts"
-import {
-  DEFAULT_TOKEN_CEILING,
-  MAX_TOKEN_CEILING,
-  TOKEN_CEILING_PRESETS,
-  newContextTokens,
-} from "./valueObject/contextTokens.ts"
 import { sanitizeText } from "./log.ts"
 import {
   clearIdleTimeoutMs,
@@ -33,6 +18,21 @@ import {
   writeIdleTimeoutMs,
   writeTokenCeiling,
 } from "./state.ts"
+import type { ContextTokens } from "./valueObject/contextTokens.ts"
+import {
+  DEFAULT_TOKEN_CEILING,
+  MAX_TOKEN_CEILING,
+  newContextTokens,
+  TOKEN_CEILING_PRESETS,
+} from "./valueObject/contextTokens.ts"
+import type { FeatureId } from "./valueObject/featureId.ts"
+import { newFeatureId } from "./valueObject/featureId.ts"
+import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import {
+  DEFAULT_IDLE_TIMEOUT_MS,
+  MAX_TIMEOUT_MINUTES,
+  newIdleTimeoutMs,
+} from "./valueObject/idleTimeoutMs.ts"
 
 const GLOBAL_ROW_VALUE = "$global"
 const TIMEOUT_ROW_PREFIX = "$timeout:"
@@ -45,10 +45,8 @@ const CEILING_CUSTOM_VALUE = "$custom-ceiling"
 const CEILING_CLEAR_VALUE = "$clear-ceiling"
 const TIMEOUT_MINUTES_RANGE = `1-${MAX_TIMEOUT_MINUTES}`
 const CEILING_INPUT_RANGE = `1-${MAX_TOKEN_CEILING}`
-const REJECTED_TIMEOUT_HINT =
-  `EssentialsIdleTimeoutRejected: enter whole minutes from ${TIMEOUT_MINUTES_RANGE}`
-const REJECTED_CEILING_HINT =
-  `EssentialsTokenCeilingRejected: enter whole tokens from ${CEILING_INPUT_RANGE}`
+const REJECTED_TIMEOUT_HINT = `EssentialsIdleTimeoutRejected: enter whole minutes from ${TIMEOUT_MINUTES_RANGE}`
+const REJECTED_CEILING_HINT = `EssentialsTokenCeilingRejected: enter whole tokens from ${CEILING_INPUT_RANGE}`
 
 function formatEnabledState(enabled: boolean): string {
   return enabled ? "enabled" : "disabled"
@@ -184,8 +182,7 @@ function showFeatureDialog(api: TuiPluginApi) {
     api.ui.DialogSelect({
       title: "OpenCode Essentials",
       options: [globalRow, ...featureRows, ...timeoutRows, ...ceilingRows],
-      onSelect: (selectedOption) =>
-        selectDialogRow(api, selectedOption.value),
+      onSelect: (selectedOption) => selectDialogRow(api, selectedOption.value),
     }),
   )
 }
@@ -195,17 +192,11 @@ function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
     toggleGlobalEnabled(api)
     return
   }
-  if (
-    typeof rowValue === "string" &&
-    rowValue.startsWith(TIMEOUT_ROW_PREFIX)
-  ) {
+  if (typeof rowValue === "string" && rowValue.startsWith(TIMEOUT_ROW_PREFIX)) {
     selectTimeoutFeature(api, rowValue.slice(TIMEOUT_ROW_PREFIX.length))
     return
   }
-  if (
-    typeof rowValue === "string" &&
-    rowValue.startsWith(CEILING_ROW_PREFIX)
-  ) {
+  if (typeof rowValue === "string" && rowValue.startsWith(CEILING_ROW_PREFIX)) {
     selectCeilingFeature(api, rowValue.slice(CEILING_ROW_PREFIX.length))
     return
   }
@@ -216,7 +207,7 @@ function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
 
 function selectTimeoutFeature(api: TuiPluginApi, rawFeatureId: string) {
   const feature = findFeatureByRow(rawFeatureId)
-  if (!feature || !feature.hasAdjustableIdleTimeout) return
+  if (!feature?.hasAdjustableIdleTimeout) return
   showIdleTimeoutDialog(api, feature)
 }
 
@@ -255,11 +246,6 @@ function clearIdleTimeout(api: TuiPluginApi, feature: SuiteFeature) {
 function showIdleTimeoutDialog(api: TuiPluginApi, feature: SuiteFeature) {
   const config = readEssentialsConfig().config
   const storedMs = config.timeouts[feature.id]
-  const currentMs = resolveEffectiveIdleTimeoutMs(
-    config,
-    feature.id,
-    DEFAULT_IDLE_TIMEOUT_MS,
-  )
   const options: Array<{ title: string; value: unknown; footer: string }> =
     TIMEOUT_PRESET_MINUTES.map((minutes) => {
       const timeoutMs = (minutes * 60_000) as IdleTimeoutMs
@@ -312,11 +298,9 @@ function pickIdleTimeout(
 function showCustomTimeoutPrompt(api: TuiPluginApi, feature: SuiteFeature) {
   api.ui.dialog.replace(() =>
     api.ui.DialogPrompt({
-      title:
-        `${feature.title}: idle timeout in minutes (${TIMEOUT_MINUTES_RANGE})`,
+      title: `${feature.title}: idle timeout in minutes (${TIMEOUT_MINUTES_RANGE})`,
       placeholder: "30",
-      onConfirm: (value: string) =>
-        submitCustomTimeout(api, feature, value),
+      onConfirm: (value: string) => submitCustomTimeout(api, feature, value),
       onCancel: () => showFeatureDialog(api),
     }),
   )
@@ -347,7 +331,7 @@ function submitCustomTimeout(
 
 function selectCeilingFeature(api: TuiPluginApi, rawFeatureId: string) {
   const feature = findFeatureByRow(rawFeatureId)
-  if (!feature || !feature.hasAdjustableTokenCeiling) return
+  if (!feature?.hasAdjustableTokenCeiling) return
   showTokenCeilingDialog(api, feature)
 }
 
@@ -435,11 +419,9 @@ function pickTokenCeiling(
 function showCustomCeilingPrompt(api: TuiPluginApi, feature: SuiteFeature) {
   api.ui.dialog.replace(() =>
     api.ui.DialogPrompt({
-      title:
-        `${feature.title}: token ceiling in tokens (${CEILING_INPUT_RANGE})`,
+      title: `${feature.title}: token ceiling in tokens (${CEILING_INPUT_RANGE})`,
       placeholder: "384000",
-      onConfirm: (value: string) =>
-        submitCustomCeiling(api, feature, value),
+      onConfirm: (value: string) => submitCustomCeiling(api, feature, value),
       onCancel: () => showFeatureDialog(api),
     }),
   )

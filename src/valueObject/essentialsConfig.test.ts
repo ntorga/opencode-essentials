@@ -1,14 +1,14 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import type { FeatureId } from "./featureId.ts"
-import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
 import { newContextTokens } from "./contextTokens.ts"
 import {
-  newDefaultEssentialsConfig,
   ESSENTIALS_CONFIG_VERSION,
+  newDefaultEssentialsConfig,
   parseEssentialsConfig,
   serializeEssentialsConfig,
 } from "./essentialsConfig.ts"
+import type { FeatureId } from "./featureId.ts"
+import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
 
 const compactorId = "idle-auto-compactor" as FeatureId
 const ceilingId = "token-ceiling-compactor" as FeatureId

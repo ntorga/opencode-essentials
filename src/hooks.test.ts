@@ -1,7 +1,7 @@
-import { test } from "node:test"
 import assert from "node:assert/strict"
-import type { Event } from "@opencode-ai/sdk"
+import { test } from "node:test"
 import type { Hooks } from "@opencode-ai/plugin"
+import type { Event } from "@opencode-ai/sdk"
 import { combineHooks } from "./hooks.ts"
 
 function serverConnectedEvent(): Event {
