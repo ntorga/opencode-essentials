@@ -1,6 +1,11 @@
 # Changelog
 
 ```log
+0.4.0 - 2026/09/24
+chore: bump package version to 0.4.0
+docs: frame features by problem and document the permission audit
+feat: audit permission decisions and ask Jev before the human
+
 0.3.0 - 2026/09/24
 test: exercise the idle clock only through its public line
 feat: tighten the idle clock stamp

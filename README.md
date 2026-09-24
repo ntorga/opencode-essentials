@@ -7,50 +7,58 @@
 > The author nitpicked the result, and every review finding is fixed, but do
 > not expect the care of hand-written code.
 
-A suite of plugins for [OpenCode](https://opencode.ai), version 1. The package
-has one server entry and three TUI entries. The server runs the features. The
-TUI entries manage feature switches, render a shared status bar, and assist
-with permissions. A separate auto-loaded `.opencode` plugin checks wrapped
-bash commands.
+A suite of plugins for [OpenCode](https://opencode.ai), version 1. Server
+plugins run the features; TUI plugins manage the switches, render a shared
+status bar, and assist with permissions.
 
 ## Features
 
-- **Idle Auto Compactor**: compacts a session after it stays continuously idle,
-  30 minutes by default. It skips a session that was recently compacted or
-  holds under 32,000 context tokens. It reacts to events and never polls.
-  Use it when sessions go untouched overnight and you want the next task to
-  start on a trimmed context.
+- **Idle Auto Compactor**: compacts a session after it stays idle for a while
+  (30 minutes by default). It leaves recently compacted and small sessions
+  alone.
+  - *Problem it solves:* a session left sitting overnight carries a bloated
+    context into your next task.
 - **Token Ceiling Compactor**: compacts a session once its context passes a
-  chosen token ceiling, regardless of the model: 384k by default, selectable
-  from 128k to 1M, clamped down to fit smaller model windows. OpenCode
-  continues the model after it creates the summary. Use it on long refactors
-  so the session never hits the model's context wall mid-task.
-- **Idle Session Clock**: shows how long the open session has been idle since
-  the model stopped answering. It leads the shared status bar and changes
-  color as the compactor timeout approaches. Toggle it from `/essentials`.
-  Use it to spot which of your open sessions has been waiting on input the
-  longest, and to see when auto-compaction is about to fire.
-- **Permission Assistant**: sends pending Bash permission requests to
-  OpenRouter's Decisions API, with Jev as the default model. A safe
-  probability of `0.80` or higher gets one reply; every other result keeps the
-  OpenCode prompt open. It reuses credentials from `opencode auth login`. Use
-  it when a routine `git push` would otherwise stall an unattended run.
-- **Permission Notifications**: uses the freedesktop.org notification service
-  on Linux. The notification offers an "Allow once" action when the
-  notification server supports actions. OpenCode keeps its normal prompt as a
-  fallback. Use it when the terminal is in the background and you want to
-  answer a pending request from the notification itself.
+  token ceiling you pick, whatever the model. OpenCode carries on from the
+  summary.
+  - *Problem it solves:* the model drifts and forgets the plan once the
+    context window grows too large.
+- **Idle Session Clock**: shows how long the open session has waited for your
+  input, leading the status bar and changing color as compaction nears.
+  Toggle it from `/essentials`.
+  - *Problem it solves:* with several sessions open, you cannot tell which
+    ones wait on you.
+- **Permission Assistant**: screens pending permission requests against
+  OpenRouter's Decisions API before they reach you. Jev is the default
+  classifier model; switch it from `/essentials`. Routine safe requests are
+  approved; anything the model cannot vouch for keeps the normal prompt open,
+  and a doom loop is answered with a correction instead of waking you.
+  Credentials come from `opencode auth login`.
+  - *Problem it solves:* an unattended run stalls on every routine command
+    that needs approval.
+- **Permission Notifications**: on Linux, raises a pending request as a
+  desktop notification with an "Allow once" action when the notification
+  server supports it. OpenCode's own prompt stays as a fallback.
+  - *Problem it solves:* a prompt waits unseen behind a backgrounded terminal.
 - **Response Usage Status**: shows output speed, thinking-inclusive
-  throughput, and response latencies in the shared themed status bar.
-  Toggle it from `/essentials`. Use it to tell a stuck provider from a long
-  generation without guessing.
+  throughput, and response latencies in the shared status bar. Toggle it from
+  `/essentials`.
+  - *Problem it solves:* "is my provider healthy?" has no visible answer
+    while a response runs.
 - **Embedded Skills and Commands**: adds `/grill`, `/humanizer`,
   `/web-search`, and `/agent-browser` with matching native OpenCode skills.
-  Use `/grill` to stress-test a plan before code, `/web-search` for research,
-  and `/agent-browser` to check rendered UI.
-- **Exec wrapper guard**: checks commands hidden by natural bash wrappers
-  against the generated permission rules. Use it so a rule that rejects
-  `git push` still holds when the agent wraps the call in a bash script.
+  - *Problem it solves:* plan reviews, research, and rendered-UI checks each
+    need a careful prompt every time you want one.
+- **Exec Wrapper Guard**: unwraps commands the agent hides behind wrappers
+  like `timeout`, `env`, `mise exec`, or `bash -c` and checks the real inner
+  command against your permission rules.
+  - *Problem it solves:* rules match the wrapper, not the command — so a
+    common `timeout 5 git diff` fails its allow rule until you register every
+    prefixed variant, and forbidden commands escape wrapped.
+
+Every Permission Assistant decision — who approved it and how the model
+scored it — is recorded in a local audit log you can mine to trim your allow
+and deny lists. See [src/README.md](src/README.md) for the full behavior.
 
 ## The status bar
 

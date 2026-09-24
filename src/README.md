@@ -11,7 +11,7 @@ waited for input.
 src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
-  permission-assistant.tsx TUI pending-permission listener and notifier
+  permission-assistant.tsx TUI pending-permission listener, notifier, audit logger
   usage-status.tsx default export { id, tui }   — shared status bar (TUI-side)
   exec-wrapper-guard.ts    plugin wrapping shell-command permission checks
   state.ts     shared state file protocol      — written by tui, read by server
@@ -31,7 +31,7 @@ src/
     permission-assistant.ts  feature 4 row
     usage-status.ts  feature 5 row
     contextCeiling.ts  shared ceiling logic — turn usage, model window, clamp
-    permissionDecision.ts  classifier request and response validation
+    permissionDecision.ts  per-permission questions, classifier request and response validation
     notificationText.ts  notify-send argument building
     requestDeadline.ts  shared client request deadline
 ```
@@ -127,9 +127,16 @@ The Permission Assistant listens for pending permission requests in the TUI.
 OpenCode evaluates `opencode.json` rules first. Only requests that still need
 an answer reach this flow.
 
-- Bash requests go to OpenRouter's Decisions API. The default model is
-  `typesafe/jev-1.13`. Essentials reads the OpenRouter key from OpenCode's
-  `auth.json` file. `OPENROUTER_API_KEY` is an optional fallback.
+- Every pending request goes to OpenRouter's Decisions API before it reaches
+  you. Bash, edit, and external-directory have dedicated safety questions;
+  any other permission name gets a generic question that quotes the
+  permission and its patterns. The default model is `typesafe/jev-1.13`.
+  Essentials reads the OpenRouter key from OpenCode's `auth.json` file.
+  `OPENROUTER_API_KEY` is an optional fallback.
+- The doom-loop guard is answered locally, without Jev: the assistant
+  rejects the repeated call and sends the agent a correction that names the
+  loop and tells it to change approach or report the blocker. The human
+  prompt stays as the fallback when that reply fails.
 - Essentials reads the model's safe probability. A value of `0.80` or higher
   replies `once` through the OpenCode client. This reply does not save a
   permission rule.
@@ -143,8 +150,24 @@ an answer reach this flow.
   available if the notification server ignores the action.
 - A desktop action replies `once`. A user reply in the TUI cancels the
   classifier request and closes the notification.
-- Only Bash requests go to OpenRouter. Essentials sends permission patterns.
-  It does not send the session transcript or project path.
+- The assistant sends permission patterns. It does not send the session
+  transcript or project path. Jev sees the command text only: for a custom
+  script the agent wants to run, it judges the invocation, not what the
+  script body does. Requests with more than eight patterns or one longer than
+  2000 characters skip classification and reach the human directly.
+- Every request that reaches a decision is audited to `permission-audit.log`
+  in the OpenCode data directory. One JSON line records each Jev
+  classification that answers a still-open request: permission name, model,
+  safe probability, and auto-allow verdict. Another line records the decision:
+  permission name, patterns, session id, actor (`classifier`, `user`, or
+  `assistant`), and reply (`once`, `always`, or `reject`). A doom-loop
+  interrupt appears as one decision line with actor `assistant` and reply
+  `reject`; it never reaches the classifier, so it writes no classification
+  line. Commands that OpenCode's allow or
+  deny rules handle emit no events and never reach the file. Patterns longer
+  than 2000 characters are shortened and carry `"truncated": true`. Use the
+  file to move safe commands into the allow list and to check how often each
+  actor decides.
 - OpenRouter's [Jev guide](https://openrouter.ai/docs/guides/community/jev)
   describes the model and Decisions API. Its [permission prompt
   example](https://openrouter.ai/docs/cookbook/coding-agents/auto-approve-permission-prompts-with-jev)
@@ -254,7 +277,7 @@ host loads `tui.json`. Restart OpenCode after changing either file.
 The permission assistant reads the `openrouter` API key from the OpenCode
 auth store in `$XDG_DATA_HOME/opencode/auth.json` (default
 `~/.local/share/opencode/auth.json`). `OPENROUTER_API_KEY` is an optional
-fallback. OpenRouter receives Bash permission patterns for classification.
+fallback. OpenRouter receives Bash, edit, and directory permission patterns for classification.
 Essentials does not send the session transcript or project path.
 
 Toggling does not need a restart. Type `/essentials` in the prompt, or
