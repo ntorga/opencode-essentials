@@ -12,12 +12,15 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import {
+  clearFeatureModel,
   clearIdleTimeoutMs,
   isFeatureEnabled,
   readEssentialsConfig,
   resolveEffectiveIdleTimeoutMs,
+  resolveEffectiveModel,
   resolveEssentialsStatePath,
   writeFeatureEnabled,
+  writeFeatureModel,
   writeGlobalEnabled,
   writeIdleTimeoutMs,
 } from "./state.ts"
@@ -25,6 +28,8 @@ import type { FeatureId } from "./valueObject/featureId.ts"
 import { newFeatureId } from "./valueObject/featureId.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import { newIdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import { newOpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
 // requires each file to own its preconditions, even if it duplicates code.
@@ -39,6 +44,12 @@ function trustedTimeout(ms: number): IdleTimeoutMs {
   const timeout = newIdleTimeoutMs(ms)
   if (!timeout) throw new Error(`TestFixtureTimeoutInvalid: ${ms}`)
   return timeout
+}
+
+function trustedOpenRouterModel(model: string): OpenRouterModelId {
+  const validatedModel = newOpenRouterModelId(model)
+  if (!validatedModel) throw new Error(`TestFixtureModelInvalid: ${model}`)
+  return validatedModel
 }
 
 function writeRawState(contents: string) {
@@ -125,6 +136,26 @@ describe("essentials config file", () => {
         trustedTimeout(999),
       ),
       999,
+    )
+  })
+
+  it("uses a stored classifier model and clears it to the default", () => {
+    const assistantId = trustedFeatureId("permission-assistant")
+    const fallbackModel = trustedOpenRouterModel("typesafe/jev-1.13")
+    const selectedModel = trustedOpenRouterModel("qwen/qwen3.8-flash")
+    writeFeatureModel(assistantId, selectedModel)
+
+    let config = readEssentialsConfig().config
+    assert.equal(
+      resolveEffectiveModel(config, assistantId, fallbackModel),
+      selectedModel,
+    )
+
+    clearFeatureModel(assistantId)
+    config = readEssentialsConfig().config
+    assert.equal(
+      resolveEffectiveModel(config, assistantId, fallbackModel),
+      fallbackModel,
     )
   })
 

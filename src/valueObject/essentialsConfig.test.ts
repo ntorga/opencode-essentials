@@ -9,9 +9,11 @@ import {
 } from "./essentialsConfig.ts"
 import type { FeatureId } from "./featureId.ts"
 import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
+import { newOpenRouterModelId } from "./openRouterModelId.ts"
 
 const compactorId = "idle-auto-compactor" as FeatureId
 const ceilingId = "token-ceiling-compactor" as FeatureId
+const permissionAssistantId = "permission-assistant" as FeatureId
 
 function copyStates(config: ReturnType<typeof parseEssentialsConfig>) {
   if (config === undefined) return undefined
@@ -72,6 +74,19 @@ describe("parseEssentialsConfig", () => {
     assert.deepEqual({ ...config?.ceilings }, { [ceilingId]: 512000 })
   })
 
+  it("reads a permission classifier model setting", () => {
+    const config = parseEssentialsConfig({
+      version: ESSENTIALS_CONFIG_VERSION,
+      settings: {
+        [permissionAssistantId]: { model: "qwen/qwen3.8-flash" },
+      },
+    })
+    assert.deepEqual(
+      { ...config?.models },
+      { [permissionAssistantId]: "qwen/qwen3.8-flash" },
+    )
+  })
+
   it("defaults enabled, features, and settings when absent", () => {
     const config = parseEssentialsConfig({ version: ESSENTIALS_CONFIG_VERSION })
     assert.deepEqual(config, newDefaultEssentialsConfig())
@@ -119,6 +134,7 @@ describe("parseEssentialsConfig", () => {
     { [ceilingId]: { ceilingTokens: 1.5 } },
     { [ceilingId]: { ceilingTokens: 2000001 } },
     { [ceilingId]: { ceilingTokens: "384000" } },
+    { [permissionAssistantId]: { model: "not-a-provider-model" } },
   ]) {
     it(`rejects the document over settings ${JSON.stringify(broken)}`, () => {
       assert.equal(
@@ -159,10 +175,13 @@ describe("serializeEssentialsConfig", () => {
     config.timeouts[compactorId] = newIdleTimeoutMs(900000)
     config.ceilings[ceilingId] = newContextTokens(1000000)
     config.ceilings[compactorId] = newContextTokens(256000)
+    config.models[permissionAssistantId] =
+      newOpenRouterModelId("qwen/qwen3.8-flash")
     const serialized = JSON.parse(serializeEssentialsConfig(config))
     assert.deepEqual(serialized.settings, {
       "idle-auto-compactor": { idleTimeoutMs: 900000, ceilingTokens: 256000 },
       "token-ceiling-compactor": { ceilingTokens: 1000000 },
+      "permission-assistant": { model: "qwen/qwen3.8-flash" },
     })
     assert.deepEqual(parseEssentialsConfig(serialized), config)
   })

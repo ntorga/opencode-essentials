@@ -6,6 +6,8 @@ import type { FeatureStates } from "./featureStates.ts"
 import { newFeatureStates } from "./featureStates.ts"
 import type { IdleTimeoutMs } from "./idleTimeoutMs.ts"
 import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
+import type { OpenRouterModelId } from "./openRouterModelId.ts"
+import { newOpenRouterModelId } from "./openRouterModelId.ts"
 import { isRecord } from "./util.ts"
 
 export const ESSENTIALS_CONFIG_VERSION = 1
@@ -13,16 +15,20 @@ export const ESSENTIALS_CONFIG_VERSION = 1
 const RESERVED_DOCUMENT_KEYS = ["version", "enabled", "features", "settings"]
 const IDLE_TIMEOUT_KEY = "idleTimeoutMs"
 const CEILING_TOKENS_KEY = "ceilingTokens"
+const CLASSIFIER_MODEL_KEY = "model"
 
 export type FeatureTimeouts = Partial<Record<FeatureId, IdleTimeoutMs>>
 
 export type FeatureCeilings = Partial<Record<FeatureId, ContextTokens>>
+
+export type FeatureModels = Partial<Record<FeatureId, OpenRouterModelId>>
 
 export type EssentialsConfig = {
   isEnabled: boolean
   states: FeatureStates
   timeouts: FeatureTimeouts
   ceilings: FeatureCeilings
+  models: FeatureModels
 }
 
 export function newDefaultEssentialsConfig(): EssentialsConfig {
@@ -31,6 +37,7 @@ export function newDefaultEssentialsConfig(): EssentialsConfig {
     states: Object.create(null) as FeatureStates,
     timeouts: Object.create(null) as FeatureTimeouts,
     ceilings: Object.create(null) as FeatureCeilings,
+    models: Object.create(null) as FeatureModels,
   }
 }
 
@@ -39,19 +46,31 @@ export function newDefaultEssentialsConfig(): EssentialsConfig {
 // would revert the user's value to the default with no signal at 3am, so any
 // present-but-uninterpretable field rejects the document. A feature with no
 // stored tunables simply has no entry.
-function newFeatureSettings(
-  rawSettings: unknown,
-): { timeouts: FeatureTimeouts; ceilings: FeatureCeilings } | undefined {
+function newFeatureSettings(rawSettings: unknown):
+  | {
+      timeouts: FeatureTimeouts
+      ceilings: FeatureCeilings
+      models: FeatureModels
+    }
+  | undefined {
   const timeouts = Object.create(null) as FeatureTimeouts
   const ceilings = Object.create(null) as FeatureCeilings
-  if (rawSettings === undefined) return { timeouts, ceilings }
+  const models = Object.create(null) as FeatureModels
+  if (rawSettings === undefined) return { timeouts, ceilings, models }
   if (!isRecord(rawSettings)) return undefined
   for (const [rawKey, rawEntry] of Object.entries(rawSettings)) {
     const featureId = newFeatureId(rawKey)
     if (!featureId || !isRecord(rawEntry)) return undefined
     const rawTimeout = rawEntry[IDLE_TIMEOUT_KEY]
     const rawCeiling = rawEntry[CEILING_TOKENS_KEY]
-    if (rawTimeout === undefined && rawCeiling === undefined) return undefined
+    const rawModel = rawEntry[CLASSIFIER_MODEL_KEY]
+    if (
+      rawTimeout === undefined &&
+      rawCeiling === undefined &&
+      rawModel === undefined
+    ) {
+      return undefined
+    }
     if (rawTimeout !== undefined) {
       const timeout = newIdleTimeoutMs(rawTimeout)
       if (timeout === undefined) return undefined
@@ -62,8 +81,13 @@ function newFeatureSettings(
       if (ceiling === undefined) return undefined
       ceilings[featureId] = ceiling
     }
+    if (rawModel !== undefined) {
+      const model = newOpenRouterModelId(rawModel)
+      if (model === undefined) return undefined
+      models[featureId] = model
+    }
   }
-  return { timeouts, ceilings }
+  return { timeouts, ceilings, models }
 }
 
 function newVersionedConfig(
@@ -83,6 +107,7 @@ function newVersionedConfig(
   if (settings === undefined) return undefined
   config.timeouts = settings.timeouts
   config.ceilings = settings.ceilings
+  config.models = settings.models
   return config
 }
 
@@ -111,7 +136,11 @@ export function parseEssentialsConfig(
 export function serializeEssentialsConfig(config: EssentialsConfig): string {
   const settings: Record<
     string,
-    { idleTimeoutMs?: number; ceilingTokens?: number }
+    {
+      idleTimeoutMs?: number
+      ceilingTokens?: number
+      model?: OpenRouterModelId
+    }
   > = {}
   for (const [featureId, timeout] of Object.entries(config.timeouts)) {
     if (timeout === undefined) continue
@@ -122,6 +151,13 @@ export function serializeEssentialsConfig(config: EssentialsConfig): string {
     settings[featureId] = {
       ...settings[featureId],
       [CEILING_TOKENS_KEY]: ceiling,
+    }
+  }
+  for (const [featureId, model] of Object.entries(config.models)) {
+    if (model === undefined) continue
+    settings[featureId] = {
+      ...settings[featureId],
+      [CLASSIFIER_MODEL_KEY]: model,
     }
   }
   return JSON.stringify(

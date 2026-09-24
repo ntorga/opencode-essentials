@@ -20,6 +20,7 @@ import {
 } from "./valueObject/essentialsConfig.ts"
 import type { FeatureId } from "./valueObject/featureId.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
+import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 
 export type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
 
@@ -223,5 +224,28 @@ export function writeTokenCeiling(
 export function clearTokenCeiling(featureId: FeatureId) {
   mutateEssentialsConfig((config) => {
     delete config.ceilings[featureId]
+  })
+}
+
+export function resolveEffectiveModel(
+  config: EssentialsConfig,
+  featureId: FeatureId,
+  fallbackModel: OpenRouterModelId,
+): OpenRouterModelId {
+  return config.models[featureId] ?? fallbackModel
+}
+
+export function writeFeatureModel(
+  featureId: FeatureId,
+  model: OpenRouterModelId,
+) {
+  mutateEssentialsConfig((config) => {
+    config.models[featureId] = model
+  })
+}
+
+export function clearFeatureModel(featureId: FeatureId) {
+  mutateEssentialsConfig((config) => {
+    delete config.models[featureId]
   })
 }

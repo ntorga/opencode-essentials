@@ -1,6 +1,8 @@
 {
   "plugin": [
     "./src/tui.ts",
+    "./src/permission-assistant.tsx",
+    "./src/usage-status.tsx",
     [
       "./src/idle-clock.tsx",
       {

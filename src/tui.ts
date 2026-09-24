@@ -4,16 +4,21 @@ import type {
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
 import type { SuiteFeature } from "./features/feature.ts"
+import { permissionAssistantFeature } from "./features/permission-assistant.ts"
 import { FEATURES } from "./features/registry.ts"
 import { sanitizeText } from "./log.ts"
+import { DEFAULT_CLASSIFIER_MODEL } from "./permissionDecision.ts"
 import {
+  clearFeatureModel,
   clearIdleTimeoutMs,
   clearTokenCeiling,
   isFeatureChosen,
   readEssentialsConfig,
   resolveEffectiveIdleTimeoutMs,
+  resolveEffectiveModel,
   resolveEffectiveTokenCeiling,
   writeFeatureEnabled,
+  writeFeatureModel,
   writeGlobalEnabled,
   writeIdleTimeoutMs,
   writeTokenCeiling,
@@ -33,12 +38,17 @@ import {
   MAX_TIMEOUT_MINUTES,
   newIdleTimeoutMs,
 } from "./valueObject/idleTimeoutMs.ts"
+import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import { newOpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 
 const GLOBAL_ROW_VALUE = "$global"
 const TIMEOUT_ROW_PREFIX = "$timeout:"
 const CUSTOM_TIMEOUT_VALUE = "$custom"
 const CLEAR_TIMEOUT_VALUE = "$clear"
 const TIMEOUT_PRESET_MINUTES = [5, 15, 30, 60]
+const CLASSIFIER_MODEL_ROW_VALUE = "$classifier-model"
+const CUSTOM_CLASSIFIER_MODEL_VALUE = "$custom-classifier-model"
+const CLEAR_CLASSIFIER_MODEL_VALUE = "$clear-classifier-model"
 
 const CEILING_ROW_PREFIX = "$ceiling:"
 const CEILING_CUSTOM_VALUE = "$custom-ceiling"
@@ -143,6 +153,17 @@ function showFeatureDialog(api: TuiPluginApi) {
     description: feature.description,
     footer: formatEnabledState(isFeatureChosen(config, feature.id)),
   }))
+  const storedClassifierModel = config.models[permissionAssistantFeature.id]
+  const classifierModelRow = {
+    title: "Permission Assistant model",
+    value: CLASSIFIER_MODEL_ROW_VALUE,
+    description: "OpenRouter Decisions model used for Bash classification.",
+    footer: `${resolveEffectiveModel(
+      config,
+      permissionAssistantFeature.id,
+      DEFAULT_CLASSIFIER_MODEL,
+    )} (${storedClassifierModel ? "stored" : "default"})`,
+  }
   const timeoutRows = FEATURES.filter(
     (feature) => feature.hasAdjustableIdleTimeout,
   ).map((feature) => {
@@ -181,8 +202,109 @@ function showFeatureDialog(api: TuiPluginApi) {
   api.ui.dialog.replace(() =>
     api.ui.DialogSelect({
       title: "OpenCode Essentials",
-      options: [globalRow, ...featureRows, ...timeoutRows, ...ceilingRows],
+      options: [
+        globalRow,
+        ...featureRows,
+        classifierModelRow,
+        ...timeoutRows,
+        ...ceilingRows,
+      ],
       onSelect: (selectedOption) => selectDialogRow(api, selectedOption.value),
+    }),
+  )
+}
+
+function saveClassifierModel(api: TuiPluginApi, model: OpenRouterModelId) {
+  try {
+    writeFeatureModel(permissionAssistantFeature.id, model)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "success",
+    message: `Permission Assistant model is ${model}`,
+  })
+  showFeatureDialog(api)
+}
+
+function submitClassifierModel(api: TuiPluginApi, rawValue: string) {
+  const model = newOpenRouterModelId(rawValue.trim())
+  if (!model) {
+    api.ui.toast({
+      variant: "error",
+      message: "EssentialsClassifierModelRejected: enter provider/model",
+    })
+    showClassifierModelPrompt(api)
+    return
+  }
+  saveClassifierModel(api, model)
+}
+
+function showClassifierModelPrompt(api: TuiPluginApi) {
+  const config = readEssentialsConfig().config
+  const currentModel = resolveEffectiveModel(
+    config,
+    permissionAssistantFeature.id,
+    DEFAULT_CLASSIFIER_MODEL,
+  )
+  api.ui.dialog.replace(() =>
+    api.ui.DialogPrompt({
+      title: "Permission Assistant OpenRouter model",
+      placeholder: "provider/model",
+      value: currentModel,
+      onConfirm: (value) => submitClassifierModel(api, value),
+      onCancel: () => showFeatureDialog(api),
+    }),
+  )
+}
+
+function clearClassifierModel(api: TuiPluginApi) {
+  try {
+    clearFeatureModel(permissionAssistantFeature.id)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "info",
+    message: `Permission Assistant model is back to ${DEFAULT_CLASSIFIER_MODEL}`,
+  })
+  showFeatureDialog(api)
+}
+
+function pickClassifierModel(api: TuiPluginApi, rowValue: unknown) {
+  if (rowValue === CUSTOM_CLASSIFIER_MODEL_VALUE) {
+    showClassifierModelPrompt(api)
+    return
+  }
+  if (rowValue !== CLEAR_CLASSIFIER_MODEL_VALUE) return
+  clearClassifierModel(api)
+}
+
+function showClassifierModelDialog(api: TuiPluginApi) {
+  const storedModel =
+    readEssentialsConfig().config.models[permissionAssistantFeature.id]
+  const options: Array<{ title: string; value: unknown; footer: string }> = [
+    {
+      title: "Choose a custom model…",
+      value: CUSTOM_CLASSIFIER_MODEL_VALUE,
+      footer: storedModel ? "stored" : "",
+    },
+  ]
+  if (storedModel) {
+    options.push({
+      title: `Use Jev default (${DEFAULT_CLASSIFIER_MODEL})`,
+      value: CLEAR_CLASSIFIER_MODEL_VALUE,
+      footer: "",
+    })
+  }
+  api.ui.dialog.replace(() =>
+    api.ui.DialogSelect({
+      title: "Permission Assistant model",
+      options,
+      onSelect: (selectedOption) =>
+        pickClassifierModel(api, selectedOption.value),
     }),
   )
 }
@@ -190,6 +312,10 @@ function showFeatureDialog(api: TuiPluginApi) {
 function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
   if (rowValue === GLOBAL_ROW_VALUE) {
     toggleGlobalEnabled(api)
+    return
+  }
+  if (rowValue === CLASSIFIER_MODEL_ROW_VALUE) {
+    showClassifierModelDialog(api)
     return
   }
   if (typeof rowValue === "string" && rowValue.startsWith(TIMEOUT_ROW_PREFIX)) {

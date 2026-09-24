@@ -1,0 +1,30 @@
+import type { PermissionName } from "./permissionName.ts"
+import { newPermissionName } from "./permissionName.ts"
+import type { PermissionRequestId } from "./permissionRequestId.ts"
+import { newPermissionRequestId } from "./permissionRequestId.ts"
+import { isRecord } from "./util.ts"
+
+export type PermissionRequest = {
+  id: PermissionRequestId
+  permission: PermissionName
+  patterns: string[]
+}
+
+export function newPermissionRequest(
+  rawValue: unknown,
+): PermissionRequest | undefined {
+  if (!isRecord(rawValue)) return undefined
+  const id = newPermissionRequestId(rawValue.id)
+  if (!id) return undefined
+  const permission = newPermissionName(rawValue.permission)
+  if (!permission) return undefined
+  if (!Array.isArray(rawValue.patterns)) return undefined
+  if (!rawValue.patterns.every((pattern) => typeof pattern === "string")) {
+    return undefined
+  }
+  return {
+    id,
+    permission,
+    patterns: rawValue.patterns,
+  }
+}

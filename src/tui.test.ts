@@ -19,6 +19,8 @@ type SelectProps = {
 
 type PromptProps = {
   title: string
+  value?: string
+  placeholder?: string
   onConfirm: (value: string) => void
   onCancel: () => void
 }
@@ -71,6 +73,10 @@ async function openMainDialog(fake: ReturnType<typeof fakeTuiApi>) {
   fake.registeredCommands[0]?.run()
 }
 
+function findDialogOption(dialog: SelectProps | undefined, value: unknown) {
+  return dialog?.options.find((option) => option.value === value)
+}
+
 let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
@@ -104,7 +110,7 @@ describe("essentials tui companion", () => {
     assert.equal(fake.registeredCommands[0]?.slashName, "essentials")
   })
 
-  it("lists global, feature, and timeout rows", async () => {
+  it("lists global, feature, model, timeout, and ceiling rows", async () => {
     const fake = fakeTuiApi()
     await openMainDialog(fake)
 
@@ -118,6 +124,9 @@ describe("essentials tui companion", () => {
         "idle-auto-compactor",
         "token-ceiling-compactor",
         "idle-clock",
+        "permission-assistant",
+        "usage-status",
+        "$classifier-model",
         "$timeout:idle-auto-compactor",
         "$ceiling:token-ceiling-compactor",
       ],
@@ -129,10 +138,65 @@ describe("essentials tui companion", () => {
         "enabled",
         "enabled",
         "enabled",
+        "enabled",
+        "enabled",
+        "typesafe/jev-1.13 (default)",
         "30 min (default)",
         "384k (default)",
       ],
     )
+  })
+
+  it("changes the classifier model and can restore the Jev default", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+
+    fake.openedDialogs[0]?.onSelect({ value: "$classifier-model" })
+    assert.deepEqual(
+      fake.openedDialogs[1]?.options.map((option) => option.value),
+      ["$custom-classifier-model"],
+    )
+    fake.openedDialogs[1]?.onSelect({ value: "$custom-classifier-model" })
+    assert.equal(fake.openedPrompts[0]?.value, "typesafe/jev-1.13")
+    fake.openedPrompts[0]?.onConfirm("qwen/qwen3.8-flash")
+
+    assert.deepEqual(
+      { ...readEssentialsConfig().config.models },
+      { "permission-assistant": "qwen/qwen3.8-flash" },
+    )
+    assert.equal(
+      findDialogOption(fake.openedDialogs.at(-1), "$classifier-model")?.footer,
+      "qwen/qwen3.8-flash (stored)",
+    )
+
+    fake.openedDialogs.at(-1)?.onSelect({ value: "$classifier-model" })
+    assert.deepEqual(
+      fake.openedDialogs.at(-1)?.options.map((option) => option.value),
+      ["$custom-classifier-model", "$clear-classifier-model"],
+    )
+    fake.openedDialogs.at(-1)?.onSelect({ value: "$clear-classifier-model" })
+
+    assert.deepEqual({ ...readEssentialsConfig().config.models }, {})
+    assert.equal(
+      findDialogOption(fake.openedDialogs.at(-1), "$classifier-model")?.footer,
+      "typesafe/jev-1.13 (default)",
+    )
+  })
+
+  it("rejects an invalid classifier model without storing it", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+    fake.openedDialogs[0]?.onSelect({ value: "$classifier-model" })
+    fake.openedDialogs[1]?.onSelect({ value: "$custom-classifier-model" })
+
+    fake.openedPrompts[0]?.onConfirm("jev-1.13")
+
+    assert.match(
+      fake.toastMessages.join("|"),
+      /EssentialsClassifierModelRejected/,
+    )
+    assert.deepEqual({ ...readEssentialsConfig().config.models }, {})
+    assert.equal(fake.openedPrompts.length, 2)
   })
 
   it("shows the master switch off and the choices kept when it flips", async () => {
@@ -217,14 +281,22 @@ describe("essentials tui companion", () => {
     assert.equal(config.timeouts[FEATURES[0].id], 900_000)
     assert.match(fake.toastMessages.join("|"), /15 min/)
     assert.equal(fake.openedDialogs[2]?.title, "OpenCode Essentials")
-    assert.equal(fake.openedDialogs[2]?.options[4]?.footer, "15 min (stored)")
+    assert.equal(
+      findDialogOption(fake.openedDialogs[2], "$timeout:idle-auto-compactor")
+        ?.footer,
+      "15 min (stored)",
+    )
   })
 
   it("keeps the 30 min default footer when nothing is configured", async () => {
     const fake = fakeTuiApi()
     await openMainDialog(fake)
 
-    assert.equal(fake.openedDialogs[0]?.options[4]?.footer, "30 min (default)")
+    assert.equal(
+      findDialogOption(fake.openedDialogs[0], "$timeout:idle-auto-compactor")
+        ?.footer,
+      "30 min (default)",
+    )
   })
 
   it("labels a sub-minute timeout as under a minute", async () => {
@@ -240,7 +312,8 @@ describe("essentials tui companion", () => {
     await openMainDialog(fake)
 
     assert.equal(
-      fake.openedDialogs[0]?.options[4]?.footer,
+      findDialogOption(fake.openedDialogs[0], "$timeout:idle-auto-compactor")
+        ?.footer,
       "under a minute (stored)",
     )
   })
@@ -298,7 +371,11 @@ describe("essentials tui companion", () => {
     fake.openedDialogs[3]?.onSelect({ value: "$clear" })
 
     assert.deepEqual({ ...readEssentialsConfig().config.timeouts }, {})
-    assert.equal(fake.openedDialogs[4]?.options[4]?.footer, "30 min (default)")
+    assert.equal(
+      findDialogOption(fake.openedDialogs[4], "$timeout:idle-auto-compactor")
+        ?.footer,
+      "30 min (default)",
+    )
   })
 
   it("opens the ceiling submenu from the ceiling row", async () => {
@@ -331,7 +408,13 @@ describe("essentials tui companion", () => {
 
     assert.equal(readEssentialsConfig().config.ceilings[FEATURES[1].id], 128000)
     assert.match(fake.toastMessages.join("|"), /128k/)
-    assert.equal(fake.openedDialogs[2]?.options[5]?.footer, "128k (stored)")
+    assert.equal(
+      findDialogOption(
+        fake.openedDialogs[2],
+        "$ceiling:token-ceiling-compactor",
+      )?.footer,
+      "128k (stored)",
+    )
 
     fake.openedDialogs[2]?.onSelect({
       value: "$ceiling:token-ceiling-compactor",
@@ -400,7 +483,13 @@ describe("essentials tui companion", () => {
     fake.openedDialogs[3]?.onSelect({ value: "$clear-ceiling" })
 
     assert.deepEqual({ ...readEssentialsConfig().config.ceilings }, {})
-    assert.equal(fake.openedDialogs[4]?.options[5]?.footer, "384k (default)")
+    assert.equal(
+      findDialogOption(
+        fake.openedDialogs[4],
+        "$ceiling:token-ceiling-compactor",
+      )?.footer,
+      "384k (default)",
+    )
   })
 
   it("returns to the main dialog when the prompt is cancelled", async () => {
