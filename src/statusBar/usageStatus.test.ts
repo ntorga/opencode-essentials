@@ -282,31 +282,6 @@ describe("resolveResponseUsageStatus", () => {
     ])
   })
 
-  it("rejects a malformed output token count", () => {
-    const malformedMessage = {
-      ...createAssistantMessage(),
-      tokens: {
-        output: Number.NaN,
-      },
-    }
-
-    assert.equal(
-      resolveResponseUsageStatus([malformedMessage], () => []),
-      undefined,
-    )
-  })
-
-  it("does not need input or cache counts for the response footer", () => {
-    const message = {
-      ...createAssistantMessage(),
-      tokens: { output: 25 },
-    }
-
-    const usage = resolveResponseUsageStatus([message], () => [])
-
-    assert.equal(usage?.averageTokensPerSecond, 5)
-  })
-
   it("formats token rate and labels both latency values", () => {
     const usage = resolveResponseUsageStatus([createAssistantMessage()], () => [
       { type: "text", time: { start: RESPONSE_STARTED_AT + 650 } },

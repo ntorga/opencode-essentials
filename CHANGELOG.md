@@ -2,6 +2,7 @@
 
 ```log
 0.3.0 - 2026/09/24
+test: exercise the idle clock only through its public line
 feat: tighten the idle clock stamp
 docs: explain the status bar in the readme
 fix: rate active generation time and polish metric display

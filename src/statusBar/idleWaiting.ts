@@ -61,7 +61,7 @@ export function toIdleClockMessages(
 // auto-compactor's summary turn carries `summary: true`; it is the plugin
 // answering the clock away, not the model waiting on the user, so it never
 // re-anchors.
-export function resolveIdleAnchorMs(
+function resolveIdleAnchorMs(
   messages: readonly IdleClockMessage[],
 ): TimestampMs | undefined {
   let anchorMs: TimestampMs | undefined
@@ -79,7 +79,7 @@ export function resolveIdleAnchorMs(
   return anchorMs
 }
 
-export function formatIdleDuration(elapsedMs: number): string {
+function formatIdleDuration(elapsedMs: number): string {
   const totalSeconds = Math.floor(elapsedMs / 1000)
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
