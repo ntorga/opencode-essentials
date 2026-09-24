@@ -1,14 +1,16 @@
-import type { ContextTokens } from "./contextTokens.ts"
-import { newContextTokens } from "./contextTokens.ts"
-import type { FeatureId } from "./featureId.ts"
-import { newFeatureId } from "./featureId.ts"
-import type { FeatureStates } from "./featureStates.ts"
-import { newFeatureStates } from "./featureStates.ts"
-import type { IdleTimeoutMs } from "./idleTimeoutMs.ts"
-import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
-import type { OpenRouterModelId } from "./openRouterModelId.ts"
-import { newOpenRouterModelId } from "./openRouterModelId.ts"
-import { isRecord } from "./util.ts"
+import type { ContextTokens } from "../valueObject/contextTokens.ts"
+import { newContextTokens } from "../valueObject/contextTokens.ts"
+import type { FeatureId } from "../valueObject/featureId.ts"
+import { newFeatureId } from "../valueObject/featureId.ts"
+import type { FeatureStates } from "../valueObject/featureStates.ts"
+import { newFeatureStates } from "../valueObject/featureStates.ts"
+import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import { newIdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
+import { newOpenRouterModelId } from "../valueObject/openRouterModelId.ts"
+import { isRecord } from "../valueObject/util.ts"
+import type { ParsedDocument } from "./util.ts"
+import { newParsedDocument } from "./util.ts"
 
 export const ESSENTIALS_CONFIG_VERSION = 1
 
@@ -23,7 +25,7 @@ export type FeatureCeilings = Partial<Record<FeatureId, ContextTokens>>
 
 export type FeatureModels = Partial<Record<FeatureId, OpenRouterModelId>>
 
-export type EssentialsConfig = {
+type EssentialsFields = {
   isEnabled: boolean
   states: FeatureStates
   timeouts: FeatureTimeouts
@@ -31,14 +33,16 @@ export type EssentialsConfig = {
   models: FeatureModels
 }
 
+export type EssentialsConfig = ParsedDocument<EssentialsFields, "essentials">
+
 export function newDefaultEssentialsConfig(): EssentialsConfig {
-  return {
+  return newParsedDocument<EssentialsFields, "essentials">({
     isEnabled: true,
     states: Object.create(null) as FeatureStates,
     timeouts: Object.create(null) as FeatureTimeouts,
     ceilings: Object.create(null) as FeatureCeilings,
     models: Object.create(null) as FeatureModels,
-  }
+  })
 }
 
 // A settings entry is one feature's whole tuning block, holding whichever
@@ -125,7 +129,7 @@ function newLegacyConfig(rawDocument: unknown): EssentialsConfig | undefined {
   return { ...newDefaultEssentialsConfig(), states }
 }
 
-export function parseEssentialsConfig(
+export function parseEssentialsDocument(
   rawDocument: unknown,
 ): EssentialsConfig | undefined {
   if (!isRecord(rawDocument)) return undefined
@@ -133,7 +137,7 @@ export function parseEssentialsConfig(
   return newVersionedConfig(rawDocument)
 }
 
-export function serializeEssentialsConfig(config: EssentialsConfig): string {
+export function serializeEssentialsDocument(config: EssentialsConfig): string {
   const settings: Record<
     string,
     {

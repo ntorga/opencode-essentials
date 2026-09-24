@@ -1,11 +1,11 @@
-import type { ContextTokens } from "./valueObject/contextTokens.ts"
-import { newContextTokens } from "./valueObject/contextTokens.ts"
-import type { ModelId } from "./valueObject/modelId.ts"
-import { newModelId } from "./valueObject/modelId.ts"
-import type { ModelRef } from "./valueObject/modelRef.ts"
-import type { ProviderId } from "./valueObject/providerId.ts"
-import { newProviderId } from "./valueObject/providerId.ts"
-import { isRecord } from "./valueObject/util.ts"
+import type { ContextTokens } from "../valueObject/contextTokens.ts"
+import { newContextTokens } from "../valueObject/contextTokens.ts"
+import type { ModelId } from "../valueObject/modelId.ts"
+import { newModelId } from "../valueObject/modelId.ts"
+import type { ModelRef } from "../valueObject/modelRef.ts"
+import type { ProviderId } from "../valueObject/providerId.ts"
+import { newProviderId } from "../valueObject/providerId.ts"
+import { isRecord } from "../valueObject/util.ts"
 
 // The measured context of the newest answer, ready for ceiling comparison.
 export type CeilingTurn = {

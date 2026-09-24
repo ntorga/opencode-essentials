@@ -1,6 +1,6 @@
-import type { OpenRouterApiKey } from "./valueObject/openRouterApiKey.ts"
-import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
-import { isRecord } from "./valueObject/util.ts"
+import type { OpenRouterApiKey } from "../valueObject/openRouterApiKey.ts"
+import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
+import { isRecord } from "../valueObject/util.ts"
 
 export const DEFAULT_CLASSIFIER_MODEL = "typesafe/jev-1.13" as OpenRouterModelId
 

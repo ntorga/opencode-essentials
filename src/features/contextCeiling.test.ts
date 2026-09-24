@@ -1,13 +1,13 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
+import type { ContextTokens } from "../valueObject/contextTokens.ts"
+import { newModelId } from "../valueObject/modelId.ts"
+import { newProviderId } from "../valueObject/providerId.ts"
 import {
   clampCeilingToModel,
   resolveCeilingTurn,
   resolveProviderContextLimit,
 } from "./contextCeiling.ts"
-import type { ContextTokens } from "./valueObject/contextTokens.ts"
-import { newModelId } from "./valueObject/modelId.ts"
-import { newProviderId } from "./valueObject/providerId.ts"
 
 function assistantTurn(
   input: {

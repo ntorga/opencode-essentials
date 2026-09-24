@@ -1,15 +1,13 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import { resolveCeilingTurn } from "../contextCeiling.ts"
+import type { EssentialsConfig } from "../documents/essentialsDocument.ts"
+import { newDefaultEssentialsConfig } from "../documents/essentialsDocument.ts"
 import { writeLog } from "../log.ts"
-import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
 import {
   isFeatureEnabled,
   logEssentialsConfigReadFailure,
   readEssentialsConfig,
   resolveEffectiveIdleTimeoutMs,
 } from "../state.ts"
-import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
-import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
 import {
   clampIdleTimeoutToTimerDelay,
@@ -21,7 +19,9 @@ import {
 import type { SessionId } from "../valueObject/sessionId.ts"
 import { newSessionId } from "../valueObject/sessionId.ts"
 import { isRecord } from "../valueObject/util.ts"
+import { resolveCeilingTurn } from "./contextCeiling.ts"
 import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 import { requestSummarize } from "./sessionSummarizer.ts"
 
 const idleAutoCompactorId: FeatureId = "idle-auto-compactor" as FeatureId

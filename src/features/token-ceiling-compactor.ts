@@ -1,11 +1,7 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import {
-  clampCeilingToModel,
-  resolveCeilingTurn,
-  resolveProviderContextLimit,
-} from "../contextCeiling.ts"
+import type { EssentialsConfig } from "../documents/essentialsDocument.ts"
+import { newDefaultEssentialsConfig } from "../documents/essentialsDocument.ts"
 import { writeLog } from "../log.ts"
-import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
 import {
   isFeatureEnabled,
   logEssentialsConfigReadFailure,
@@ -18,13 +14,17 @@ import {
   MAX_TOKEN_CEILING,
   newContextTokens,
 } from "../valueObject/contextTokens.ts"
-import type { EssentialsConfig } from "../valueObject/essentialsConfig.ts"
-import { newDefaultEssentialsConfig } from "../valueObject/essentialsConfig.ts"
 import type { FeatureId } from "../valueObject/featureId.ts"
 import type { ModelRef } from "../valueObject/modelRef.ts"
 import type { SessionId } from "../valueObject/sessionId.ts"
 import { newSessionId } from "../valueObject/sessionId.ts"
+import {
+  clampCeilingToModel,
+  resolveCeilingTurn,
+  resolveProviderContextLimit,
+} from "./contextCeiling.ts"
 import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 import { requestSummarize, type SummarizeResult } from "./sessionSummarizer.ts"
 
 const tokenCeilingCompactorId: FeatureId =

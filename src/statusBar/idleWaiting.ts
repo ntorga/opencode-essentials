@@ -1,6 +1,6 @@
-import type { TimestampMs } from "./valueObject/timestampMs.ts"
-import { newTimestampMs } from "./valueObject/timestampMs.ts"
-import { isRecord } from "./valueObject/util.ts"
+import type { TimestampMs } from "../valueObject/timestampMs.ts"
+import { newTimestampMs } from "../valueObject/timestampMs.ts"
+import { isRecord } from "../valueObject/util.ts"
 
 export type IdleClockMessage = {
   role: "user" | "assistant"

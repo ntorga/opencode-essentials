@@ -1,41 +1,41 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { newContextTokens } from "./contextTokens.ts"
+import { newContextTokens } from "../valueObject/contextTokens.ts"
+import type { FeatureId } from "../valueObject/featureId.ts"
+import { newIdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import { newOpenRouterModelId } from "../valueObject/openRouterModelId.ts"
 import {
   ESSENTIALS_CONFIG_VERSION,
   newDefaultEssentialsConfig,
-  parseEssentialsConfig,
-  serializeEssentialsConfig,
-} from "./essentialsConfig.ts"
-import type { FeatureId } from "./featureId.ts"
-import { newIdleTimeoutMs } from "./idleTimeoutMs.ts"
-import { newOpenRouterModelId } from "./openRouterModelId.ts"
+  parseEssentialsDocument,
+  serializeEssentialsDocument,
+} from "./essentialsDocument.ts"
 
 const compactorId = "idle-auto-compactor" as FeatureId
 const ceilingId = "token-ceiling-compactor" as FeatureId
 const permissionAssistantId = "permission-assistant" as FeatureId
 
-function copyStates(config: ReturnType<typeof parseEssentialsConfig>) {
+function copyStates(config: ReturnType<typeof parseEssentialsDocument>) {
   if (config === undefined) return undefined
   return { ...config.states }
 }
 
-describe("parseEssentialsConfig", () => {
+describe("parseEssentialsDocument", () => {
   it("rejects non-objects", () => {
     for (const rejected of [null, undefined, 7, "x", []]) {
-      assert.equal(parseEssentialsConfig(rejected), undefined)
+      assert.equal(parseEssentialsDocument(rejected), undefined)
     }
   })
 
   it("migrates the legacy flat boolean map", () => {
-    const config = parseEssentialsConfig({ "idle-auto-compactor": false })
+    const config = parseEssentialsDocument({ "idle-auto-compactor": false })
     assert.equal(config?.isEnabled, true)
     assert.deepEqual(copyStates(config), { "idle-auto-compactor": false })
     assert.deepEqual({ ...config?.timeouts }, {})
   })
 
   it("ignores non-boolean entries in a legacy map", () => {
-    const config = parseEssentialsConfig({
+    const config = parseEssentialsDocument({
       "idle-auto-compactor": true,
       junk: "yes",
     })
@@ -43,7 +43,7 @@ describe("parseEssentialsConfig", () => {
   })
 
   it("reads a full versioned document", () => {
-    const config = parseEssentialsConfig({
+    const config = parseEssentialsDocument({
       version: ESSENTIALS_CONFIG_VERSION,
       enabled: false,
       features: { "idle-auto-compactor": true },
@@ -55,7 +55,7 @@ describe("parseEssentialsConfig", () => {
   })
 
   it("reads a settings entry that stores only a token ceiling", () => {
-    const config = parseEssentialsConfig({
+    const config = parseEssentialsDocument({
       version: ESSENTIALS_CONFIG_VERSION,
       settings: { [ceilingId]: { ceilingTokens: 128000 } },
     })
@@ -64,7 +64,7 @@ describe("parseEssentialsConfig", () => {
   })
 
   it("reads a settings entry that stores both tunables", () => {
-    const config = parseEssentialsConfig({
+    const config = parseEssentialsDocument({
       version: ESSENTIALS_CONFIG_VERSION,
       settings: {
         [ceilingId]: { idleTimeoutMs: 60000, ceilingTokens: 512000 },
@@ -75,7 +75,7 @@ describe("parseEssentialsConfig", () => {
   })
 
   it("reads a permission classifier model setting", () => {
-    const config = parseEssentialsConfig({
+    const config = parseEssentialsDocument({
       version: ESSENTIALS_CONFIG_VERSION,
       settings: {
         [permissionAssistantId]: { model: "qwen/qwen3.8-flash" },
@@ -88,18 +88,23 @@ describe("parseEssentialsConfig", () => {
   })
 
   it("defaults enabled, features, and settings when absent", () => {
-    const config = parseEssentialsConfig({ version: ESSENTIALS_CONFIG_VERSION })
+    const config = parseEssentialsDocument({
+      version: ESSENTIALS_CONFIG_VERSION,
+    })
     assert.deepEqual(config, newDefaultEssentialsConfig())
   })
 
   it("rejects an unknown version", () => {
-    assert.equal(parseEssentialsConfig({ version: 2 }), undefined)
-    assert.equal(parseEssentialsConfig({ version: "1" }), undefined)
+    assert.equal(parseEssentialsDocument({ version: 2 }), undefined)
+    assert.equal(parseEssentialsDocument({ version: "1" }), undefined)
   })
 
   it("rejects a non-boolean enabled flag", () => {
     assert.equal(
-      parseEssentialsConfig({ version: ESSENTIALS_CONFIG_VERSION, enabled: 1 }),
+      parseEssentialsDocument({
+        version: ESSENTIALS_CONFIG_VERSION,
+        enabled: 1,
+      }),
       undefined,
     )
   })
@@ -107,7 +112,7 @@ describe("parseEssentialsConfig", () => {
   it("rejects a malformed features or settings block", () => {
     for (const block of ["nope", null, 5]) {
       assert.equal(
-        parseEssentialsConfig({
+        parseEssentialsDocument({
           version: ESSENTIALS_CONFIG_VERSION,
           features: block,
         }),
@@ -115,7 +120,7 @@ describe("parseEssentialsConfig", () => {
         `features: ${JSON.stringify(block)}`,
       )
       assert.equal(
-        parseEssentialsConfig({
+        parseEssentialsDocument({
           version: ESSENTIALS_CONFIG_VERSION,
           settings: block,
         }),
@@ -138,7 +143,7 @@ describe("parseEssentialsConfig", () => {
   ]) {
     it(`rejects the document over settings ${JSON.stringify(broken)}`, () => {
       assert.equal(
-        parseEssentialsConfig({
+        parseEssentialsDocument({
           version: ESSENTIALS_CONFIG_VERSION,
           settings: broken,
         }),
@@ -153,19 +158,19 @@ describe("parseEssentialsConfig", () => {
       enabled: false,
       features: { "idle-auto-compactor": false },
     }
-    assert.equal(parseEssentialsConfig(smuggled), undefined)
-    assert.equal(parseEssentialsConfig({ enabled: false }), undefined)
+    assert.equal(parseEssentialsDocument(smuggled), undefined)
+    assert.equal(parseEssentialsDocument({ enabled: false }), undefined)
   })
 })
 
-describe("serializeEssentialsConfig", () => {
+describe("serializeEssentialsDocument", () => {
   it("round-trips a config through JSON", () => {
     const config = newDefaultEssentialsConfig()
     config.isEnabled = false
     config.states[compactorId] = true
     config.timeouts[compactorId] = newIdleTimeoutMs(1234)
-    const reparsed = parseEssentialsConfig(
-      JSON.parse(serializeEssentialsConfig(config)),
+    const reparsed = parseEssentialsDocument(
+      JSON.parse(serializeEssentialsDocument(config)),
     )
     assert.deepEqual(reparsed, config)
   })
@@ -177,18 +182,18 @@ describe("serializeEssentialsConfig", () => {
     config.ceilings[compactorId] = newContextTokens(256000)
     config.models[permissionAssistantId] =
       newOpenRouterModelId("qwen/qwen3.8-flash")
-    const serialized = JSON.parse(serializeEssentialsConfig(config))
+    const serialized = JSON.parse(serializeEssentialsDocument(config))
     assert.deepEqual(serialized.settings, {
       "idle-auto-compactor": { idleTimeoutMs: 900000, ceilingTokens: 256000 },
       "token-ceiling-compactor": { ceilingTokens: 1000000 },
       "permission-assistant": { model: "qwen/qwen3.8-flash" },
     })
-    assert.deepEqual(parseEssentialsConfig(serialized), config)
+    assert.deepEqual(parseEssentialsDocument(serialized), config)
   })
 
   it("writes an empty settings block when no timeouts exist", () => {
     const serialized = JSON.parse(
-      serializeEssentialsConfig(newDefaultEssentialsConfig()),
+      serializeEssentialsDocument(newDefaultEssentialsConfig()),
     )
     assert.deepEqual(serialized.settings, {})
     assert.equal(serialized.version, ESSENTIALS_CONFIG_VERSION)

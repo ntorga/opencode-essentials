@@ -1,10 +1,8 @@
-import type { MessageId } from "./valueObject/messageId.ts"
-import { newMessageId } from "./valueObject/messageId.ts"
-import type { TimestampMs } from "./valueObject/timestampMs.ts"
-import { newTimestampMs } from "./valueObject/timestampMs.ts"
-import type { TokenCount } from "./valueObject/tokenCount.ts"
-import { newTokenCount } from "./valueObject/tokenCount.ts"
-import { isRecord } from "./valueObject/util.ts"
+import { newCompletedAssistantMessage } from "../documents/completedAssistantMessage.ts"
+import type { MessageId } from "../valueObject/messageId.ts"
+import type { TimestampMs } from "../valueObject/timestampMs.ts"
+import { newTimestampMs } from "../valueObject/timestampMs.ts"
+import { isRecord } from "../valueObject/util.ts"
 
 const TOKEN_RATE_RESPONSE_WINDOW_SIZE = 3
 
@@ -12,44 +10,6 @@ export type ResponseUsageStatus = {
   averageTokensPerSecond: number
   averageFirstTextLatencyMs?: number
   averageResponseDurationMs: number
-}
-
-type CompletedAssistantMessage = {
-  id: MessageId
-  createdAtMs: TimestampMs
-  completedAtMs: TimestampMs
-  outputTokens: TokenCount
-}
-
-function newCompletedAssistantMessage(
-  rawValue: unknown,
-): CompletedAssistantMessage | undefined {
-  if (!isRecord(rawValue) || rawValue.role !== "assistant") return undefined
-  if (rawValue.summary === true) return undefined
-  const id = newMessageId(rawValue.id)
-  if (!id || !isRecord(rawValue.time) || !isRecord(rawValue.tokens)) {
-    return undefined
-  }
-
-  const createdAtMs = newTimestampMs(rawValue.time.created)
-  const completedAtMs = newTimestampMs(rawValue.time.completed)
-  const outputTokens = newTokenCount(rawValue.tokens.output)
-  if (
-    createdAtMs === undefined ||
-    completedAtMs === undefined ||
-    completedAtMs <= createdAtMs ||
-    outputTokens === undefined ||
-    outputTokens === 0
-  ) {
-    return undefined
-  }
-
-  return {
-    id,
-    createdAtMs,
-    completedAtMs,
-    outputTokens,
-  }
 }
 
 function resolveFirstTextMs(

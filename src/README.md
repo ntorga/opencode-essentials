@@ -13,14 +13,14 @@ src/
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
   permission-assistant.tsx TUI pending-permission listener and notifier
   usage-status.tsx default export { id, tui }   — shared status bar (TUI-side)
-  idleClockStatus.ts idle clock state and display settings
-  idleWaiting.ts clock logic                   — anchor, elapsed, and format
-  usageStatus.ts response metrics              — token rate and latency values
-  contextCeiling.ts ceiling logic              — turn usage, model window, clamp
+  exec-wrapper-guard.ts    plugin wrapping shell-command permission checks
   state.ts     shared state file protocol      — written by tui, read by server
-  valueObject/ one validated type per file     — the input trust boundary
+  openRouterAuth.ts        reads OpenCode's auth store for the API key
   hooks.ts     fans one hook out to all features
   log.ts       structured logging through client.app.log
+  documents/   one parser per external payload — state file, messages, auth entry
+  valueObject/ one validated type per file     — the input trust boundary
+  statusBar/   idle clock, idle anchor, and response metrics for the footer
   features/
     feature.ts   the SuiteFeature contract
     registry.ts  the feature list both entries read
@@ -28,6 +28,12 @@ src/
     token-ceiling-compactor.ts  feature 2
     sessionSummarizer.ts  shared session.summarize call
     idle-clock.ts  feature 3 (TUI-only, no server hooks)
+    permission-assistant.ts  feature 4 row
+    usage-status.ts  feature 5 row
+    contextCeiling.ts  shared ceiling logic — turn usage, model window, clamp
+    permissionDecision.ts  classifier request and response validation
+    notificationText.ts  notify-send argument building
+    requestDeadline.ts  shared client request deadline
 ```
 
 A module exports either `server()` or `tui()`, never both — OpenCode's

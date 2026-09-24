@@ -1,7 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin"
-import { CLIENT_REQUEST_DEADLINE_MS } from "../requestDeadline.ts"
 import type { ModelRef } from "../valueObject/modelRef.ts"
 import type { SessionId } from "../valueObject/sessionId.ts"
+import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 
 // The outcome of one summarize request, without any feature's log keys
 // attached: the caller turns it into its own searchable log message.

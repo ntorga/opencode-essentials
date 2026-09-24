@@ -4,15 +4,15 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
+import { buildPermissionNotificationArguments } from "./features/notificationText.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
-import { sanitizeText } from "./log.ts"
-import { buildPermissionNotificationArguments } from "./notificationText.ts"
-import { readOpenRouterApiKey } from "./openRouterAuth.ts"
 import {
   DEFAULT_CLASSIFIER_MODEL,
   isSafePermissionProbability,
   requestSafePermissionProbability,
-} from "./permissionDecision.ts"
+} from "./features/permissionDecision.ts"
+import { sanitizeText } from "./log.ts"
+import { readOpenRouterApiKey } from "./openRouterAuth.ts"
 import {
   isFeatureEnabled,
   readEssentialsConfig,

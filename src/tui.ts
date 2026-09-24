@@ -5,9 +5,9 @@ import type {
 } from "@opencode-ai/plugin/tui"
 import type { SuiteFeature } from "./features/feature.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
+import { DEFAULT_CLASSIFIER_MODEL } from "./features/permissionDecision.ts"
 import { FEATURES } from "./features/registry.ts"
 import { sanitizeText } from "./log.ts"
-import { DEFAULT_CLASSIFIER_MODEL } from "./permissionDecision.ts"
 import {
   clearFeatureModel,
   clearIdleTimeoutMs,

@@ -9,20 +9,20 @@ import {
 import { homedir } from "node:os"
 import path from "node:path"
 import type { PluginInput } from "@opencode-ai/plugin"
+import type { EssentialsConfig } from "./documents/essentialsDocument.ts"
+import {
+  newDefaultEssentialsConfig,
+  parseEssentialsDocument,
+  serializeEssentialsDocument,
+} from "./documents/essentialsDocument.ts"
 import { writeLog } from "./log.ts"
 import { newAbsolutePath } from "./valueObject/absolutePath.ts"
 import type { ContextTokens } from "./valueObject/contextTokens.ts"
-import type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
-import {
-  newDefaultEssentialsConfig,
-  parseEssentialsConfig,
-  serializeEssentialsConfig,
-} from "./valueObject/essentialsConfig.ts"
 import type { FeatureId } from "./valueObject/featureId.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 
-export type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
+export type { EssentialsConfig } from "./documents/essentialsDocument.ts"
 
 export type EssentialsConfigRead = {
   config: EssentialsConfig
@@ -94,7 +94,7 @@ function readStateFile(filePath: string): EssentialsConfigRead {
   } catch (failure) {
     return { config: newDefaultEssentialsConfig(), error: failure }
   }
-  const config = parseEssentialsConfig(parsedDocument)
+  const config = parseEssentialsDocument(parsedDocument)
   if (config === undefined) {
     return {
       config: newDefaultEssentialsConfig(),
@@ -170,7 +170,7 @@ function mutateEssentialsConfig(mutate: (config: EssentialsConfig) => void) {
     throw refusal
   }
   mutate(configRead.config)
-  const payload = serializeEssentialsConfig(configRead.config)
+  const payload = serializeEssentialsDocument(configRead.config)
   if (payload.length > MAX_STATE_FILE_BYTES) {
     throw new Error(`StateWriteOversized: ${String(payload.length)} bytes`)
   }

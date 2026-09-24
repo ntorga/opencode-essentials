@@ -6,20 +6,20 @@ import type {
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import type { EssentialsConfig } from "./documents/essentialsDocument.ts"
 import { usageStatusFeature } from "./features/usage-status.ts"
+import { sanitizeText } from "./log.ts"
+import { isFeatureEnabled, readEssentialsConfig } from "./state.ts"
 import {
   resolveIdleClockLineForSession,
   resolveIdleClockTextColor,
   resolveIdleCompactorTimeout,
-} from "./idleClockStatus.ts"
-import type { IdleClockLine } from "./idleWaiting.ts"
-import { sanitizeText } from "./log.ts"
-import { isFeatureEnabled, readEssentialsConfig } from "./state.ts"
+} from "./statusBar/idleClockStatus.ts"
+import type { IdleClockLine } from "./statusBar/idleWaiting.ts"
 import {
   formatResponseUsageStatus,
   resolveResponseUsageStatus,
-} from "./usageStatus.ts"
-import type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
+} from "./statusBar/usageStatus.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import type { SessionId } from "./valueObject/sessionId.ts"
 import { newSessionId } from "./valueObject/sessionId.ts"

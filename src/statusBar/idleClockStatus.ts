@@ -1,23 +1,23 @@
 import type { PluginOptions } from "@opencode-ai/plugin"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import { idleClockFeature } from "./features/idle-clock.ts"
+import type { EssentialsConfig } from "../documents/essentialsDocument.ts"
+import { idleClockFeature } from "../features/idle-clock.ts"
+import { isFeatureEnabled, resolveEffectiveIdleTimeoutMs } from "../state.ts"
+import type { FeatureId } from "../valueObject/featureId.ts"
+import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
+import {
+  clampIdleTimeoutToTimerDelay,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  newIdleTimeoutMs,
+} from "../valueObject/idleTimeoutMs.ts"
+import type { SessionId } from "../valueObject/sessionId.ts"
+import { isRecord } from "../valueObject/util.ts"
 import {
   type IdleClockColor,
   type IdleClockLine,
   resolveIdleClockLine,
   toIdleClockMessages,
 } from "./idleWaiting.ts"
-import { isFeatureEnabled, resolveEffectiveIdleTimeoutMs } from "./state.ts"
-import type { EssentialsConfig } from "./valueObject/essentialsConfig.ts"
-import type { FeatureId } from "./valueObject/featureId.ts"
-import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
-import {
-  clampIdleTimeoutToTimerDelay,
-  DEFAULT_IDLE_TIMEOUT_MS,
-  newIdleTimeoutMs,
-} from "./valueObject/idleTimeoutMs.ts"
-import type { SessionId } from "./valueObject/sessionId.ts"
-import { isRecord } from "./valueObject/util.ts"
 
 const idleAutoCompactorId = "idle-auto-compactor" as FeatureId
 
