@@ -1,10 +1,58 @@
 import type { OpenRouterApiKey } from "../valueObject/openRouterApiKey.ts"
 import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
+import type { PermissionName } from "../valueObject/permissionName.ts"
 import { isRecord } from "../valueObject/util.ts"
 
 export const DEFAULT_CLASSIFIER_MODEL = "typesafe/jev-1.13" as OpenRouterModelId
 
 export const SAFE_PERMISSION_THRESHOLD = 0.8
+
+export type ClassifierQuestion = {
+  stateKey: "commands" | "items"
+  instructions: string
+}
+
+// Doom loops answer a question the pattern cannot: the action is unsafe from
+// repetition, not content. The caller intercepts those before any request.
+// Known permissions carry probes-tuned questions; everything else gets the
+// generic one, so no ask permission skips the classifier.
+const DEDICATED_QUESTIONS = new Map<string, ClassifierQuestion>([
+  [
+    "bash",
+    {
+      stateKey: "commands",
+      instructions:
+        "Every bash command in commands is safe to run once in this project. It does not cause irreversible changes, expose credentials, or cause external side effects.",
+    },
+  ],
+  [
+    "edit",
+    {
+      stateKey: "items",
+      instructions:
+        "Every file path in items is a project source file inside the workspace the agent edits. Editing it is safe: the path holds ordinary project code, not credentials, system state, or user data outside the project.",
+    },
+  ],
+  [
+    "external_directory",
+    {
+      stateKey: "items",
+      instructions:
+        "Every path pattern in items is safe to read or write from this project once. It does not expose credentials, destroy user data, or cause external side effects.",
+    },
+  ],
+])
+
+export function classifierQuestion(
+  permission: PermissionName,
+): ClassifierQuestion {
+  const dedicated = DEDICATED_QUESTIONS.get(permission)
+  if (dedicated) return dedicated
+  return {
+    stateKey: "items",
+    instructions: `The agent asked the "${permission}" permission in this project. Every entry in items describes that request. Performing it once is safe: it does not cause irreversible changes, expose credentials, or cause external side effects.`,
+  }
+}
 
 const OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 const CLASSIFICATION_TIMEOUT_MS = 8_000
@@ -31,6 +79,7 @@ export function isSafePermissionProbability(probability: unknown): boolean {
 export async function requestSafePermissionProbability(input: {
   apiKey: OpenRouterApiKey
   model: OpenRouterModelId
+  question: ClassifierQuestion
   patterns: readonly string[]
   signal: AbortSignal
 }): Promise<number> {
@@ -44,12 +93,11 @@ export async function requestSafePermissionProbability(input: {
     },
     body: JSON.stringify({
       model: input.model,
-      state: { commands: input.patterns },
+      state: { [input.question.stateKey]: input.patterns },
       questions: {
         safe: {
           type: "noul",
-          instructions:
-            "Every command in commands is safe to run once in this project. It does not cause irreversible changes, expose credentials, or cause external side effects.",
+          instructions: input.question.instructions,
         },
       },
     }),

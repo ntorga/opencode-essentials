@@ -7,6 +7,14 @@ import type {
 import { buildPermissionNotificationArguments } from "./features/notificationText.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
 import {
+  auditPermissionClassification,
+  auditPermissionDecision,
+  type PermissionAuditActor,
+  type PermissionAuditReply,
+} from "./features/permissionAudit.ts"
+import {
+  type ClassifierQuestion,
+  classifierQuestion,
   DEFAULT_CLASSIFIER_MODEL,
   isSafePermissionProbability,
   requestSafePermissionProbability,
@@ -19,20 +27,25 @@ import {
   resolveEffectiveModel,
 } from "./state.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import type { PermissionName } from "./valueObject/permissionName.ts"
 import type { PermissionRequest } from "./valueObject/permissionRequest.ts"
 import { newPermissionRequest } from "./valueObject/permissionRequest.ts"
 import type { PermissionRequestId } from "./valueObject/permissionRequestId.ts"
 import { newPermissionRequestId } from "./valueObject/permissionRequestId.ts"
 
-const MAX_CLASSIFIER_COMMANDS = 8
-const MAX_CLASSIFIER_COMMAND_CHARS = 2_000
+const MAX_CLASSIFIER_PATTERNS = 8
+const MAX_CLASSIFIER_PATTERN_CHARS = 2_000
 const ALLOW_ACTION = "allow"
+const DOOM_LOOP_PERMISSION = "doom_loop" as PermissionName
+const DOOM_LOOP_CORRECTION =
+  "The doom-loop guard stopped this action: you are repeating the same call. Do not retry it unchanged. Change your approach or report the blocker and what you tried."
 
 type PendingPermission = {
   request: PermissionRequest
   abort: AbortController
   notification?: ChildProcess
   hasReplied: boolean
+  authorizedActor?: PermissionAuditActor
   fallbackWasShown: boolean
 }
 
@@ -48,13 +61,15 @@ function isCurrentPermission(
   return pendingPermissions.get(permission.request.id) === permission
 }
 
-function shouldClassifyBashPermission(request: PermissionRequest): boolean {
-  if (request.permission !== "bash") return false
-  if (request.patterns.length === 0) return false
-  if (request.patterns.length > MAX_CLASSIFIER_COMMANDS) return false
-  return request.patterns.every(
-    (pattern) => pattern.length <= MAX_CLASSIFIER_COMMAND_CHARS,
+function classifierQuestionFor(
+  request: PermissionRequest,
+): ClassifierQuestion | undefined {
+  if (request.patterns.length === 0) return undefined
+  if (request.patterns.length > MAX_CLASSIFIER_PATTERNS) return undefined
+  const fitsLimit = request.patterns.every(
+    (pattern) => pattern.length <= MAX_CLASSIFIER_PATTERN_CHARS,
   )
+  return fitsLimit ? classifierQuestion(request.permission) : undefined
 }
 
 function formatPermissionNotificationMessage(
@@ -143,24 +158,36 @@ function stopPendingPermission(
   stopPermissionNotification(permission)
 }
 
-async function replyPermissionOnce(
+function releaseReplyAttempt(permission: PendingPermission): void {
+  permission.hasReplied = false
+  permission.authorizedActor = undefined
+}
+
+async function replyPermission(
   api: TuiPluginApi,
   pendingPermissions: Map<PermissionRequestId, PendingPermission>,
   permission: PendingPermission,
+  actor: PermissionAuditActor,
+  replyTo: PermissionAuditReply,
+  correctionMessage?: string,
 ): Promise<boolean> {
   if (!isCurrentPermission(pendingPermissions, permission)) return false
   if (permission.hasReplied) return false
   permission.hasReplied = true
+  permission.authorizedActor = actor
 
   let reply: Awaited<ReturnType<typeof api.client.permission.reply>>
   try {
     reply = await api.client.permission.reply({
       requestID: permission.request.id,
       directory: api.state.path.directory,
-      reply: "once",
+      reply: replyTo,
+      ...(correctionMessage === undefined
+        ? {}
+        : { message: correctionMessage }),
     })
   } catch (failure) {
-    permission.hasReplied = false
+    releaseReplyAttempt(permission)
     if (isCurrentPermission(pendingPermissions, permission)) {
       await logPermissionFailure(api, "PermissionReplyFailed", failure)
     }
@@ -169,12 +196,12 @@ async function replyPermissionOnce(
 
   if (!isCurrentPermission(pendingPermissions, permission)) return false
   if ("error" in reply && reply.error) {
-    permission.hasReplied = false
+    releaseReplyAttempt(permission)
     await logPermissionFailure(api, "PermissionReplyFailed", reply.error)
     return false
   }
   if (reply.data !== true) {
-    permission.hasReplied = false
+    releaseReplyAttempt(permission)
     await logPermissionFailure(
       api,
       "PermissionReplyFailed",
@@ -183,7 +210,7 @@ async function replyPermissionOnce(
     return false
   }
 
-  stopPendingPermission(pendingPermissions, permission.request.id)
+  stopPermissionNotification(permission)
   return true
 }
 
@@ -220,7 +247,7 @@ function showLinuxPermissionNotification(
   notification.once("close", (exitCode) => {
     if (!isCurrentPermission(pendingPermissions, permission)) return
     if (selectedAction.trim() === ALLOW_ACTION) {
-      void replyPermissionOnce(api, pendingPermissions, permission)
+      void replyPermission(api, pendingPermissions, permission, "user", "once")
       return
     }
     if (exitCode !== 0) showAttentionNotification(api, permission)
@@ -240,14 +267,38 @@ function showPermissionNotification(
   showLinuxPermissionNotification(api, pendingPermissions, permission)
 }
 
-async function classifyOrNotifyPermission(
+function logAuditWriteFailure(
+  api: TuiPluginApi,
+  failure: unknown,
+): Promise<void> {
+  return logPermissionFailure(api, "PermissionAuditWriteFailed", failure)
+}
+
+async function answerOrNotifyPermission(
   api: TuiPluginApi,
   pendingPermissions: Map<PermissionRequestId, PendingPermission>,
   permission: PendingPermission,
   model: OpenRouterModelId,
   state: PermissionAssistantState,
 ): Promise<void> {
-  if (!shouldClassifyBashPermission(permission.request)) {
+  if (permission.request.permission === DOOM_LOOP_PERMISSION) {
+    const interrupted = await replyPermission(
+      api,
+      pendingPermissions,
+      permission,
+      "assistant",
+      "reject",
+      DOOM_LOOP_CORRECTION,
+    )
+    if (interrupted || !isCurrentPermission(pendingPermissions, permission)) {
+      return
+    }
+    showPermissionNotification(api, pendingPermissions, permission)
+    return
+  }
+
+  const question = classifierQuestionFor(permission.request)
+  if (!question) {
     showPermissionNotification(api, pendingPermissions, permission)
     return
   }
@@ -277,6 +328,7 @@ async function classifyOrNotifyPermission(
     probability = await requestSafePermissionProbability({
       apiKey: credential.apiKey,
       model,
+      question,
       patterns: permission.request.patterns,
       signal: permission.abort.signal,
     })
@@ -288,16 +340,29 @@ async function classifyOrNotifyPermission(
   }
 
   if (!isCurrentPermission(pendingPermissions, permission)) return
-  if (!isSafePermissionProbability(probability)) {
+  const autoAllowed = isSafePermissionProbability(probability)
+  const classificationFailure = auditPermissionClassification({
+    request: permission.request,
+    projectDirectory: api.state.path.directory,
+    model,
+    probability,
+    autoAllowed,
+  })
+  if (classificationFailure) {
+    await logAuditWriteFailure(api, classificationFailure)
+  }
+  if (!autoAllowed) {
     showPermissionNotification(api, pendingPermissions, permission)
     return
   }
 
   if (!readPermissionAssistantConfig(api)) return
-  const wasAllowed = await replyPermissionOnce(
+  const wasAllowed = await replyPermission(
     api,
     pendingPermissions,
     permission,
+    "classifier",
+    "once",
   )
   if (wasAllowed || !isCurrentPermission(pendingPermissions, permission)) return
   showPermissionNotification(api, pendingPermissions, permission)
@@ -353,7 +418,7 @@ const tui: TuiPlugin = async (api) => {
       permissionAssistantFeature.id,
       DEFAULT_CLASSIFIER_MODEL,
     )
-    void classifyOrNotifyPermission(
+    void answerOrNotifyPermission(
       api,
       pendingPermissions,
       permission,
@@ -369,6 +434,18 @@ const tui: TuiPlugin = async (api) => {
   const stopReplied = api.event.on("permission.replied", (event) => {
     const requestId = newPermissionRequestId(event.properties.requestID)
     if (!requestId) return
+    const permission = pendingPermissions.get(requestId)
+    if (permission) {
+      const decisionFailure = auditPermissionDecision({
+        request: permission.request,
+        projectDirectory: api.state.path.directory,
+        actor: permission.authorizedActor ?? "user",
+        reply: event.properties.reply,
+      })
+      if (decisionFailure) {
+        void logAuditWriteFailure(api, decisionFailure)
+      }
+    }
     stopPendingPermission(pendingPermissions, requestId)
   })
 

@@ -7,11 +7,13 @@ describe("newPermissionRequest", () => {
     assert.deepEqual(
       newPermissionRequest({
         id: "per_123",
+        sessionID: "ses_123",
         permission: "bash",
         patterns: ["git status"],
       }),
       {
         id: "per_123",
+        sessionID: "ses_123",
         permission: "bash",
         patterns: ["git status"],
       },
@@ -22,9 +24,26 @@ describe("newPermissionRequest", () => {
     null,
     {},
     { id: "invalid", permission: "bash", patterns: ["git status"] },
+    { id: "per_123", permission: "bash", patterns: ["git status"] },
+    {
+      id: "per_123",
+      sessionID: "ses/../x",
+      permission: "bash",
+      patterns: ["git status"],
+    },
     { id: "per_123", permission: "bad permission", patterns: ["git status"] },
-    { id: "per_123", permission: "bash", patterns: "git status" },
-    { id: "per_123", permission: "bash", patterns: ["git status", 1] },
+    {
+      id: "per_123",
+      sessionID: "ses_123",
+      permission: "bash",
+      patterns: "git status",
+    },
+    {
+      id: "per_123",
+      sessionID: "ses_123",
+      permission: "bash",
+      patterns: ["git status", 1],
+    },
   ]
 
   for (const request of invalidRequests) {

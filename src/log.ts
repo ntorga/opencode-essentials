@@ -6,10 +6,13 @@ const MAX_LOG_VALUE_CHARS = 500
 // attacker-controlled bytes it choked on. Stripping non-printable
 // characters stops forged log lines and terminal escapes. No type absorbs
 // that contract; the sink sanitizes.
-export function sanitizeText(value: unknown): string {
+export function sanitizeText(
+  value: unknown,
+  maxChars: number = MAX_LOG_VALUE_CHARS,
+): string {
   const stringified = String(value)
   const stripped = stringified.replace(/\p{Cc}/gu, " ")
-  return stripped.slice(0, MAX_LOG_VALUE_CHARS)
+  return stripped.slice(0, maxChars)
 }
 
 function sanitizeExtras(extra: Record<string, unknown>) {
