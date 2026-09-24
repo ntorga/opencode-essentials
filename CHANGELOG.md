@@ -2,6 +2,7 @@
 
 ```log
 0.2.0 - 2026/09/24
+feat: grill only costly decisions in plan interviews
 refactor: align native skills with the framework playbook
 feat: average response status metrics
 fix: clarify the shared status bar

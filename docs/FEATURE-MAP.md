@@ -195,8 +195,8 @@ count or response cost.
 
 Adds native skills and matching commands for `/grill`, `/humanizer`,
 `/web-search`, and `/agent-browser`. Each command invokes the skill with the
-user's arguments. The grill asks at most eight questions, with no more than
-three in one round.
+user's arguments. The grill asks only about decisions that are hard to revert
+or force rework, capped at 30 questions, with no more than three in one round.
 
 **Flow:**
 
