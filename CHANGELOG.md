@@ -1,6 +1,12 @@
 # Changelog
 
 ```log
+0.2.0 - 2026/09/24
+chore: bump package version to 0.2.0
+docs: document plugin features and native commands
+feat: add native OpenCode skills and commands
+feat: add permission and usage TUI features
+
 0.1.0 - 2026/09/23
 docs: group changelog entries by commit date
 docs: document plugin behavior and development setup
