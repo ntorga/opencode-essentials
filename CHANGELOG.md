@@ -1,6 +1,11 @@
 # Changelog
 
 ```log
+0.3.0 - 2026/09/24
+chore: bump package version to 0.3.0
+docs: describe generation-time rates and metric colors
+fix: rate tok/s by text generation time and tone slow metrics
+
 0.2.0 - 2026/09/24
 docs: rewrite feature list and sync documented paths
 chore: add override banning patched-OpenCode features
