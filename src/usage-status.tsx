@@ -5,17 +5,18 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import type { EssentialsConfig } from "./documents/essentialsDocument.ts"
 import { usageStatusFeature } from "./features/usage-status.ts"
 import { sanitizeText } from "./log.ts"
 import { isFeatureEnabled, readEssentialsConfig } from "./state.ts"
 import {
   resolveIdleClockLineForSession,
-  resolveIdleClockTextColor,
   resolveIdleCompactorTimeout,
 } from "./statusBar/idleClockStatus.ts"
 import type { IdleClockLine } from "./statusBar/idleWaiting.ts"
+import { resolveStatusBarTextColor } from "./statusBar/tone.ts"
+import type { ResponseUsageSegment } from "./statusBar/usageStatus.ts"
 import {
   formatResponseUsageStatus,
   resolveResponseUsageStatus,
@@ -28,7 +29,7 @@ const CLOCK_TICK_MS = 1_000
 
 type StatusBarLines = {
   idleClock: IdleClockLine | undefined
-  responseUsage: string | undefined
+  responseUsage: ResponseUsageSegment[] | undefined
 }
 
 function resolveSessionId(api: TuiPluginApi): SessionId | undefined {
@@ -41,7 +42,7 @@ function resolveResponseUsageLine(
   api: TuiPluginApi,
   config: EssentialsConfig,
   sessionId: SessionId,
-): string | undefined {
+): ResponseUsageSegment[] | undefined {
   if (!isFeatureEnabled(config, usageStatusFeature.id)) {
     return undefined
   }
@@ -135,7 +136,7 @@ function StatusBarView(props: {
           <Show when={currentLines().idleClock}>
             {(idleClock: () => IdleClockLine) => (
               <text
-                fg={resolveIdleClockTextColor(props.api, idleClock().color)}
+                fg={resolveStatusBarTextColor(props.api, idleClock().color)}
                 wrapMode="none"
               >
                 {idleClock().text}
@@ -148,9 +149,27 @@ function StatusBarView(props: {
             </text>
           </Show>
           <Show when={currentLines().responseUsage}>
-            {(responseUsage: () => string) => (
+            {(segments: () => ResponseUsageSegment[]) => (
               <text fg={props.api.theme.current.textMuted} wrapMode="none">
-                {responseUsage()}
+                <For each={segments()}>
+                  {(segment: ResponseUsageSegment, index: () => number) => (
+                    <>
+                      <Show when={index() > 0}>
+                        <span> {" · "} </span>
+                      </Show>
+                      <span
+                        style={{
+                          fg: resolveStatusBarTextColor(
+                            props.api,
+                            segment.tone,
+                          ),
+                        }}
+                      >
+                        {segment.text}
+                      </span>
+                    </>
+                  )}
+                </For>
               </text>
             )}
           </Show>

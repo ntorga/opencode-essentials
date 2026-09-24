@@ -1,6 +1,7 @@
 import type { TimestampMs } from "../valueObject/timestampMs.ts"
 import { newTimestampMs } from "../valueObject/timestampMs.ts"
 import { isRecord } from "../valueObject/util.ts"
+import type { StatusBarTone } from "./tone.ts"
 
 export type IdleClockMessage = {
   role: "user" | "assistant"
@@ -10,11 +11,9 @@ export type IdleClockMessage = {
 
 export type IdleClockStatus = "idle" | "retry" | "busy"
 
-export type IdleClockColor = "muted" | "warning" | "error"
-
 export type IdleClockLine = {
   text: string
-  color: IdleClockColor
+  color: StatusBarTone
 }
 
 export type IdleClockCompactor = {
@@ -100,7 +99,7 @@ function formatIdleStartTimestamp(timestampMs: TimestampMs): string {
 function resolveIdleClockColor(
   elapsedMs: number,
   compactor: IdleClockCompactor,
-): IdleClockColor {
+): StatusBarTone {
   if (!compactor.enabled) return "muted"
   if (elapsedMs >= compactor.idleTimeoutMs * RED_AFTER_IDLE_FRACTION) {
     return "error"

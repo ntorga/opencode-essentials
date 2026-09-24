@@ -13,7 +13,6 @@ import {
 import type { SessionId } from "../valueObject/sessionId.ts"
 import { isRecord } from "../valueObject/util.ts"
 import {
-  type IdleClockColor,
   type IdleClockLine,
   resolveIdleClockLine,
   toIdleClockMessages,
@@ -32,15 +31,6 @@ export function resolveIdleCompactorTimeout(
   return (
     newIdleTimeoutMs(featureOptions.idleTimeoutMs) ?? DEFAULT_IDLE_TIMEOUT_MS
   )
-}
-
-export function resolveIdleClockTextColor(
-  api: TuiPluginApi,
-  color: IdleClockColor,
-) {
-  if (color === "error") return api.theme.current.error
-  if (color === "warning") return api.theme.current.warning
-  return api.theme.current.textMuted
 }
 
 export function resolveIdleClockLineForSession(

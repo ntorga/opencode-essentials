@@ -83,10 +83,122 @@ describe("resolveResponseUsageStatus", () => {
       averageFirstTextLatencyMs: 425,
       averageResponseDurationMs: 17_000 / 3,
     })
-    assert.equal(
-      formatResponseUsageStatus(usage),
-      "4 tok/s · first text latency: 425ms | total: 5.7s",
+    assert.deepEqual(formatResponseUsageStatus(usage), [
+      { text: "4 tok/s", tone: "error" },
+      { text: "first text latency: 425ms", tone: "muted" },
+      { text: "total: 5.7s", tone: "muted" },
+    ])
+  })
+
+  it("divides output tokens by text generation time, not message lifetime", () => {
+    const usage = resolveResponseUsageStatus(
+      [
+        createAssistantMessage({
+          id: "msg_toolheavy",
+          completedAfterMs: 120_000,
+          outputTokens: 900,
+        }),
+      ],
+      () => [
+        {
+          type: "text",
+          time: {
+            start: RESPONSE_STARTED_AT + 2_000,
+            end: RESPONSE_STARTED_AT + 20_000,
+          },
+        },
+      ],
     )
+
+    assert.ok(usage)
+    assert.equal(usage.averageTokensPerSecond, 50)
+    assert.equal(usage.averageResponseDurationMs, 120_000)
+    assert.deepEqual(formatResponseUsageStatus(usage)[0], {
+      text: "50 tok/s",
+      tone: "muted",
+    })
+  })
+
+  it("adds every completed text part duration into the generation window", () => {
+    const usage = resolveResponseUsageStatus(
+      [
+        createAssistantMessage({
+          id: "msg_two_bursts",
+          completedAfterMs: 60_000,
+          outputTokens: 300,
+        }),
+      ],
+      () => [
+        {
+          type: "text",
+          time: {
+            start: RESPONSE_STARTED_AT + 1_000,
+            end: RESPONSE_STARTED_AT + 6_000,
+          },
+        },
+        {
+          type: "tool",
+          time: { start: RESPONSE_STARTED_AT + 6_000, end: 50_000 },
+        },
+        {
+          type: "text",
+          synthetic: true,
+          time: {
+            start: RESPONSE_STARTED_AT + 7_000,
+            end: RESPONSE_STARTED_AT + 9_000,
+          },
+        },
+        {
+          type: "text",
+          time: {
+            start: RESPONSE_STARTED_AT + 51_000,
+            end: RESPONSE_STARTED_AT + 56_000,
+          },
+        },
+      ],
+    )
+
+    assert.equal(usage?.averageTokensPerSecond, 30)
+  })
+
+  it("falls back to the message lifetime when no text part has an end", () => {
+    const usage = resolveResponseUsageStatus(
+      [createAssistantMessage({ completedAfterMs: 5_000, outputTokens: 25 })],
+      () => [{ type: "text", time: { start: RESPONSE_STARTED_AT + 500 } }],
+    )
+
+    assert.equal(usage?.averageTokensPerSecond, 5)
+  })
+
+  it("tones slow token rates as warning or error", () => {
+    const warning = resolveResponseUsageStatus(
+      [createAssistantMessage({ completedAfterMs: 1_000, outputTokens: 30 })],
+      () => [],
+    )
+    const error = resolveResponseUsageStatus(
+      [createAssistantMessage({ completedAfterMs: 1_000, outputTokens: 10 })],
+      () => [],
+    )
+    assert.ok(warning)
+    assert.ok(error)
+
+    assert.equal(formatResponseUsageStatus(warning)[0].tone, "warning")
+    assert.equal(formatResponseUsageStatus(error)[0].tone, "error")
+  })
+
+  it("tones slow first-text latency as warning or error", () => {
+    const warning = resolveResponseUsageStatus(
+      [createAssistantMessage()],
+      () => [{ type: "text", time: { start: RESPONSE_STARTED_AT + 5_000 } }],
+    )
+    const error = resolveResponseUsageStatus([createAssistantMessage()], () => [
+      { type: "text", time: { start: RESPONSE_STARTED_AT + 15_000 } },
+    ])
+    assert.ok(warning)
+    assert.ok(error)
+
+    assert.equal(formatResponseUsageStatus(warning)[1]?.tone, "warning")
+    assert.equal(formatResponseUsageStatus(error)[1]?.tone, "error")
   })
 
   it("uses available responses when fewer than three have completed", () => {
@@ -139,10 +251,10 @@ describe("resolveResponseUsageStatus", () => {
     assert.ok(usage)
     assert.equal(usage.averageFirstTextLatencyMs, undefined)
     assert.equal(usage.averageTokensPerSecond, 5)
-    assert.equal(
-      formatResponseUsageStatus(usage),
-      "5 tok/s · total latency: 5.0s",
-    )
+    assert.deepEqual(formatResponseUsageStatus(usage), [
+      { text: "5 tok/s", tone: "error" },
+      { text: "total: 5.0s", tone: "muted" },
+    ])
   })
 
   it("rejects a malformed output token count", () => {
@@ -175,9 +287,10 @@ describe("resolveResponseUsageStatus", () => {
       { type: "text", time: { start: RESPONSE_STARTED_AT + 650 } },
     ])
     assert.ok(usage)
-    assert.equal(
-      formatResponseUsageStatus(usage),
-      "5 tok/s · first text latency: 650ms | total: 5.0s",
-    )
+    assert.deepEqual(formatResponseUsageStatus(usage), [
+      { text: "5 tok/s", tone: "error" },
+      { text: "first text latency: 650ms", tone: "muted" },
+      { text: "total: 5.0s", tone: "muted" },
+    ])
   })
 })
