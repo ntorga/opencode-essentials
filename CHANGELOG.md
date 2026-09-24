@@ -2,6 +2,7 @@
 
 ```log
 0.2.0 - 2026/09/24
+refactor: align native skills with the framework playbook
 feat: average response status metrics
 fix: clarify the shared status bar
 chore: bump package version to 0.2.0
