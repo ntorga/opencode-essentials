@@ -2,6 +2,8 @@
 
 ```log
 0.3.0 - 2026/09/24
+docs: describe paired rates and the latency group
+feat: show thinking-inclusive rate and grouped latencies
 fix: show the idle clock for reopened sessions
 chore: bump package version to 0.3.0
 docs: describe generation-time rates and metric colors

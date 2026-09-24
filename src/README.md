@@ -164,21 +164,30 @@ decision model. It is not a regular chat model.
 ### Response Usage Status
 
 The shared status bar appears after a completed assistant response. It shows
-output tokens per second, first-text latency, and total latency. When the
-session is idle, the idle counter appears first on the same padded line.
+output tokens per second, thinking-inclusive throughput when the model
+reasons, and the start, first-text, and total latencies. When the session is
+idle, the idle counter appears first on the same padded line.
 
 - Tokens per second uses output tokens divided by text generation time only:
-  the summed durations of completed text parts. Tool runs, permission waits,
-  and other pauses inside a response do not lower the rate. A response
-  without a completed text part falls back to its full duration.
-- First-text timing starts when OpenCode creates the assistant message. It
-  ends when the first non-synthetic text part starts. It does not include the
-  time from user submission to assistant-message creation.
-- Total latency runs from assistant-message creation to completion.
+  the summed durations of completed text parts. Reasoning is excluded from
+  both sides, so the number is the speed of visible streaming. Tool runs,
+  permission waits, and other pauses inside a response do not lower the
+  rate. A response without a completed text part falls back to its full
+  duration.
+- When a response carries reasoning tokens and the two rates differ, the
+  rate shows as `X/Y tok/s`: visible-text speed over total generation
+  throughput (text plus reasoning tokens over text plus reasoning part
+  time). The gap shows how much of the turn was thinking.
+- Latency shows as `latency: start/first text/total`, all measured from
+  assistant-message creation. Start is when the model began producing its
+  first part — reasoning or text. First text is when visible text began;
+  the gap between the two is thinking time. Total runs until completion and
+  includes tools and waits. When the model does not reason, start and first
+  text coincide and the bar collapses to `latency: first/total`. When part
+  timing is missing, it degrades to the total alone, muted.
 - The token rate turns yellow below 40 tok/s and red below 20 tok/s. The
-  first-text latency turns yellow above 3s and red above 10s. Total latency
-  follows the workload, so it stays muted.
-- The line omits first-text timing when that time is missing or invalid.
+  latency group takes its color from the start value: yellow above 3s, red
+  above 10s. A slow start is a provider problem; long thinking is not.
 - The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
 
@@ -407,5 +416,6 @@ npm run typecheck # tsc --noEmit
     desktop notification offers **Allow once**. Dismissing it must leave the
     OpenCode prompt open.
 13. Complete an assistant response. Check that the status bar shows token
-    rate, first-text latency, and total latency without an output count or
-    cost. Disable **Response Usage Status** to hide those metrics.
+    rate, first-text latency, and total latency — a reasoning turn pairs the
+    rate as `X/Y tok/s` — without an output count or cost. Disable
+    **Response Usage Status** to hide those metrics.

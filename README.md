@@ -40,9 +40,10 @@ bash commands.
   notification server supports actions. OpenCode keeps its normal prompt as a
   fallback. Use it when the terminal is in the background and you want to
   answer a pending request from the notification itself.
-- **Response Usage Status**: shows output speed, first-text latency, and total
-  latency in the shared themed status bar. Toggle it from `/essentials`. Use
-  it to tell a stuck provider from a long generation without guessing.
+- **Response Usage Status**: shows output speed, thinking-inclusive
+  throughput, and response latencies in the shared themed status bar.
+  Toggle it from `/essentials`. Use it to tell a stuck provider from a long
+  generation without guessing.
 - **Embedded Skills and Commands**: adds `/grill`, `/humanizer`,
   `/web-search`, and `/agent-browser` with matching native OpenCode skills.
   Use `/grill` to stress-test a plan before code, `/web-search` for research,

@@ -150,11 +150,11 @@ actions.
 
 ## Response Usage Status
 
-Shows output tokens per second, first-text latency, and total latency,
-averaged over the newest completed assistant responses. The themed status bar
-places the idle counter first when the session is idle. Slow rates and long
-first-text latency change color. It does not show the output token count or
-response cost.
+Shows output tokens per second and a start/first-text/total latency group,
+averaged over the newest completed assistant responses; reasoning turns pair
+the rate as `visible/total tok/s`. The themed status bar places the idle
+counter first when the session is idle. Slow rates and slow response starts
+change color. It does not show the output token count or response cost.
 
 **Flow:**
 
@@ -167,7 +167,9 @@ response cost.
 4. `src/usage-status.tsx` and `src/statusBar/usageStatus.ts` — read the validated
    session's messages and parts, then average the newest three completed
    responses. The token rate divides output tokens by completed text-part
-   time only, and slow values render in warning or error colors.
+   time only; reasoning turns show it paired as `visible/total tok/s`, the
+   total counting reasoning tokens and time. Slow values render in warning
+   or error colors.
 5. `src/statusBar/tone.ts` — the shared muted/warning/error tone vocabulary
    and its theme mapping for status-bar text.
 6. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
