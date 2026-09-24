@@ -2,6 +2,7 @@
 
 ```log
 0.2.0 - 2026/09/24
+fix: clarify the shared status bar
 chore: bump package version to 0.2.0
 docs: document plugin features and native commands
 feat: add native OpenCode skills and commands

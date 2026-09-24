@@ -1,5 +1,3 @@
-import type { CostUsd } from "./valueObject/costUsd.ts"
-import { newCostUsd } from "./valueObject/costUsd.ts"
 import type { MessageId } from "./valueObject/messageId.ts"
 import { newMessageId } from "./valueObject/messageId.ts"
 import type { TimestampMs } from "./valueObject/timestampMs.ts"
@@ -9,11 +7,9 @@ import { newTokenCount } from "./valueObject/tokenCount.ts"
 import { isRecord } from "./valueObject/util.ts"
 
 export type ResponseUsageStatus = {
-  outputTokens: TokenCount
   tokensPerSecond: number
   firstTextMs?: number
   responseDurationMs: number
-  costUsd?: CostUsd
 }
 
 type CompletedAssistantMessage = {
@@ -21,7 +17,6 @@ type CompletedAssistantMessage = {
   createdAtMs: TimestampMs
   completedAtMs: TimestampMs
   outputTokens: TokenCount
-  costUsd: CostUsd | undefined
 }
 
 function newCompletedAssistantMessage(
@@ -52,7 +47,6 @@ function newCompletedAssistantMessage(
     createdAtMs,
     completedAtMs,
     outputTokens,
-    costUsd: newCostUsd(rawValue.cost),
   }
 }
 
@@ -71,12 +65,6 @@ function resolveFirstTextMs(
     }
   }
   return firstTextMs
-}
-
-function formatTokenCount(tokenCount: TokenCount): string {
-  if (tokenCount >= 1_000_000) return `${(tokenCount / 1_000_000).toFixed(1)}M`
-  if (tokenCount >= 1_000) return `${(tokenCount / 1_000).toFixed(1)}k`
-  return String(tokenCount)
 }
 
 function formatDuration(durationMs: number): string {
@@ -115,31 +103,23 @@ export function resolveResponseUsageStatus(
     : undefined
 
   return {
-    outputTokens: latestMessage.outputTokens,
     tokensPerSecond,
     firstTextMs: timeToFirstTextMs,
     responseDurationMs,
-    costUsd: latestMessage.costUsd,
   }
 }
 
 export function formatResponseUsageStatus(usage: ResponseUsageStatus): string {
-  const fields = [
-    `${formatTokenCount(usage.outputTokens)} out`,
-    `${Math.round(usage.tokensPerSecond)} tok/s`,
-  ]
-  if (usage.firstTextMs !== undefined) {
-    fields.push(`${formatDuration(usage.firstTextMs)} first text`)
-  }
-  fields.push(`${formatDuration(usage.responseDurationMs)} duration`)
-  if (usage.costUsd !== undefined) {
-    const formattedCost = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(usage.costUsd)
-    fields.push(formattedCost)
-  }
-  return `response · ${fields.join(" · ")}`
+  const firstTextLatency =
+    usage.firstTextMs === undefined
+      ? undefined
+      : formatDuration(usage.firstTextMs)
+  const totalLatency = formatDuration(usage.responseDurationMs)
+  const latencyDetails =
+    firstTextLatency === undefined
+      ? `total latency: ${totalLatency}`
+      : `first text latency: ${firstTextLatency} | total: ${totalLatency}`
+  return [`${Math.round(usage.tokensPerSecond)} tok/s`, latencyDetails].join(
+    " · ",
+  )
 }

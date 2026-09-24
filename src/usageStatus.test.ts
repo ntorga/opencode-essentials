@@ -14,7 +14,6 @@ function createAssistantMessage(
     completedAfterMs?: number
     outputTokens?: number
     summary?: boolean
-    cost?: number
   } = {},
 ) {
   return {
@@ -31,7 +30,7 @@ function createAssistantMessage(
       reasoning: 5,
       cache: { read: 20, write: 2 },
     },
-    cost: input.cost ?? 0.0025,
+    cost: 0.0025,
   }
 }
 
@@ -54,11 +53,9 @@ describe("resolveResponseUsageStatus", () => {
     )
 
     assert.deepEqual(usage, {
-      outputTokens: 40,
       tokensPerSecond: 8,
       firstTextMs: 650,
       responseDurationMs: 5_000,
-      costUsd: 0.0025,
     })
   })
 
@@ -84,8 +81,13 @@ describe("resolveResponseUsageStatus", () => {
       { type: "text", time: { start: 1_757_000_000 } },
     ])
 
-    assert.equal(usage?.firstTextMs, undefined)
-    assert.equal(usage?.tokensPerSecond, 5)
+    assert.ok(usage)
+    assert.equal(usage.firstTextMs, undefined)
+    assert.equal(usage.tokensPerSecond, 5)
+    assert.equal(
+      formatResponseUsageStatus(usage),
+      "5 tok/s · total latency: 5.0s",
+    )
   })
 
   it("rejects a malformed output token count", () => {
@@ -110,17 +112,17 @@ describe("resolveResponseUsageStatus", () => {
 
     const usage = resolveResponseUsageStatus([message], () => [])
 
-    assert.equal(usage?.outputTokens, 25)
+    assert.equal(usage?.tokensPerSecond, 5)
   })
 
-  it("formats output usage, first-text time, duration, and cost", () => {
+  it("formats token rate and labels both latency values", () => {
     const usage = resolveResponseUsageStatus([createAssistantMessage()], () => [
       { type: "text", time: { start: RESPONSE_STARTED_AT + 650 } },
     ])
     assert.ok(usage)
     assert.equal(
       formatResponseUsageStatus(usage),
-      "response · 25 out · 5 tok/s · 650ms first text · 5.0s duration · $0.0025",
+      "5 tok/s · first text latency: 650ms | total: 5.0s",
     )
   })
 })

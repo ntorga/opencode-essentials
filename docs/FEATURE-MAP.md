@@ -53,31 +53,31 @@ runtime.
 ## Idle Session Clock
 
 Shows how long the open session has been idle — the time since the model
-stopped answering and left the floor to the user — as one line at the bottom
-of the TUI. It includes the local idle start date and time. It turns yellow
-at half of the idle auto-compactor timeout and red at 80 percent. It is
-feature 3 of the essentials suite and is toggled at runtime from the same
-`/essentials` dialog.
-It is a TUI-only feature: it has no server hooks.
+stopped answering and left the floor to the user — at the start of the shared
+status bar. It includes the local idle start date and time. It turns yellow at
+half of the idle auto-compactor timeout and red at 80 percent. It is feature 3
+of the essentials suite and is toggled at runtime from the same `/essentials`
+dialog. It is a TUI-only feature: it has no server hooks.
 
 **Flow:**
 
-1. `src/idle-clock.tsx` — a second TUI entry, registered in `tui.json`. It
-   registers a host `app_bottom` slot through `api.slots.register`. A 1-second
-   Solid signal drives the tick. The TUI plugin option supplies the server's
-   default idle timeout; a state-file timeout overrides it. The entry applies
-   the shared timer ceiling from `src/valueObject/idleTimeoutMs.ts`.
-2. `src/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
+1. `tui.json` — loads `src/usage-status.tsx` with the idle compactor timeout
+   option.
+2. `src/usage-status.tsx` — registers one padded `app_bottom` row. It puts the
+   idle counter before the response metrics.
+3. `src/idleClockStatus.ts` — reads idle session state and resolves the
+   configured timeout and display color.
+4. `src/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
    the auto-compactor's summary turn — and formats elapsed time, local start
    date and time, and timer color. It hides the line unless the session status
    is `idle`.
-3. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
+5. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
    compactor flag, and the timeout override from the shared state file each
    tick, so `/essentials` changes take effect without a restart.
-4. `src/features/idle-clock.ts` — the `SuiteFeature` entry (no `buildHooks`),
+6. `src/features/idle-clock.ts` — the `SuiteFeature` entry (no `buildHooks`),
    which lists the feature in the dialog and gates the master switch.
-5. `src/valueObject/timestampMs.ts` — the trust boundary for the message and
+7. `src/valueObject/timestampMs.ts` — the trust boundary for the message and
    wall-clock times that reach the logic.
 
 ---
@@ -165,23 +165,25 @@ actions.
 
 ## Response Usage Status
 
-Shows output tokens, output tokens per second, first-visible-text timing,
-response duration, and cost for the newest completed assistant response. The
-footer uses the active theme's panel background.
+Shows output tokens per second, first-text latency, and total latency for the
+newest completed assistant response. The themed status bar places the idle
+counter first when the session is idle. It does not show the output token
+count or response cost.
 
 **Flow:**
 
-1. `tui.json` — loads `src/usage-status.tsx` as a TUI plugin.
-2. `src/usage-status.tsx` — checks the feature toggle and registers a themed
-   footer component for the active session.
+1. `tui.json` — loads `src/usage-status.tsx` as the shared status bar and
+   passes the idle compactor timeout option.
+2. `src/usage-status.tsx` — checks feature toggles and registers one padded
+   footer row for the active session.
 3. `src/valueObject/sessionId.ts` — validates the active session ID before the
    TUI reads its messages and parts.
 4. `src/usage-status.tsx` and `src/usageStatus.ts` — read the validated
    session's messages and parts, then select and format the newest valid
    completed assistant response without a redundant context count.
-5. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`,
-   `src/valueObject/timestampMs.ts`, and `src/valueObject/costUsd.ts` —
-   validate response metrics before calculations.
+5. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
+   `src/valueObject/timestampMs.ts` — validate response metrics before
+   calculations.
 6. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
    and `src/state.ts` — expose and persist the `/essentials` feature toggle.
 7. `src/usageStatus.test.ts` — tests response selection, timing, and displayed

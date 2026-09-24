@@ -4,6 +4,5 @@ import type { SuiteFeature } from "./feature.ts"
 export const usageStatusFeature: SuiteFeature = {
   id: "usage-status" as FeatureId,
   title: "Response Usage Status",
-  description:
-    "Shows token rate, latency, response time, and cost at the bottom of the TUI.",
+  description: "Shows token rate and response latency in the status bar.",
 }

@@ -2,9 +2,8 @@
   "plugin": [
     "./src/tui.ts",
     "./src/permission-assistant.tsx",
-    "./src/usage-status.tsx",
     [
-      "./src/idle-clock.tsx",
+      "./src/usage-status.tsx",
       {
         "features": {
           "idle-auto-compactor": { "idleTimeoutMs": 1800000 }

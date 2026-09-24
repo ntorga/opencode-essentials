@@ -1,21 +1,21 @@
 # opencode-essentials
 
-One plugin package, five entry points, several features. The server entry
-runs server features. The TUI entries manage features, handle permission
-requests, show the idle clock, and display response usage. The feature dialog
-lets the user switch all features off, change feature states, and tune idle
-timeouts, token ceilings, and the classifier model. The idle clock shows how
-long the open session has waited for input.
+One plugin package, four entry points, several features. The server entry runs
+server features. The TUI entries manage features, handle permission requests,
+and render a shared status bar. The feature dialog lets the user switch all
+features off, change feature states, and tune idle timeouts, token ceilings,
+and the classifier model. The idle clock shows how long the open session has
+waited for input.
 
 ```
 src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
-  idle-clock.tsx default export { id, tui }    — idle session clock line (TUI-side)
   permission-assistant.tsx TUI pending-permission listener and notifier
-  usage-status.tsx latest assistant response metrics in the TUI footer
+  usage-status.tsx default export { id, tui }   — shared status bar (TUI-side)
+  idleClockStatus.ts idle clock state and display settings
   idleWaiting.ts clock logic                   — anchor, elapsed, and format
-  usageStatus.ts response metrics              — output, first text, duration, cost
+  usageStatus.ts response metrics              — token rate and latency values
   contextCeiling.ts ceiling logic              — turn usage, model window, clamp
   state.ts     shared state file protocol      — written by tui, read by server
   valueObject/ one validated type per file     — the input trust boundary
@@ -89,10 +89,10 @@ the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
 
 ### Idle Session Clock
 
-Shows one line at the bottom of the screen while the open session waits for
-your input, for example `idle 3m 12s · since 9/22/26, 10:20 AM`. It is a
-TUI-only feature: it renders inside the OpenCode TUI from the host's synced
-state, so it has no server hooks.
+Shows an idle counter at the start of the shared status bar while the open
+session waits for your input, for example `idle 3m 12s · since 9/22/26,
+10:20 AM`. It is a TUI-only feature: it renders inside the OpenCode TUI from
+the host's synced state, so it has no server hooks.
 
 - The clock anchors on the completion of the newest real assistant answer —
   the moment the model stopped answering. It counts up from there.
@@ -156,15 +156,17 @@ decision model. It is not a regular chat model.
 
 ### Response Usage Status
 
-The Response Usage Status line appears on a themed panel at the bottom of the
-TUI after a completed assistant response. It shows output tokens, output
-tokens per second, time to first visible text, response duration, and cost.
+The shared status bar appears after a completed assistant response. It shows
+output tokens per second, first-text latency, and total latency. When the
+session is idle, the idle counter appears first on the same padded line.
 
 - Tokens per second uses output tokens divided by the full response time.
 - First-text timing starts when OpenCode creates the assistant message. It
   ends when the first non-synthetic text part starts. It does not include the
   time from user submission to assistant-message creation.
+- Total latency runs from assistant-message creation to completion.
 - The line omits first-text timing when that time is missing or invalid.
+- The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
 
 ## Skills and slash commands
@@ -195,8 +197,8 @@ Register the server entry in `opencode.json`:
 }
 ```
 
-Set the idle-clock plugin timeout in `tui.json` to the same value as the
-server plugin timeout. The default is `1800000` milliseconds in both files.
+Set the status bar's idle compactor timeout in `tui.json` to the same value as
+the server plugin timeout. The default is `1800000` milliseconds in both files.
 
 Register the TUI entries in `tui.json`:
 
@@ -205,9 +207,8 @@ Register the TUI entries in `tui.json`:
   "plugin": [
     "./src/tui.ts",
     "./src/permission-assistant.tsx",
-    "./src/usage-status.tsx",
     [
-      "./src/idle-clock.tsx",
+      "./src/usage-status.tsx",
       {
         "features": {
           "idle-auto-compactor": { "idleTimeoutMs": 1800000 }
@@ -375,12 +376,12 @@ npm run typecheck # tsc --noEmit
    finished turn's usage passes the ceiling and the session compacts once,
    then the model continues after the summary. Answer again: it compacts once
    more, never twice per turn.
-8. Watch the bottom line while the session waits. It ticks once a second and
-   shows the elapsed wait and idle start date. Send a prompt: the line
-   disappears while the model answers and returns counting the new wait.
-9. Type `/essentials` and disable **Idle Session Clock**: the line
-   disappears within a second. Re-enable: it returns with the true elapsed
-   time.
+8. Watch the status bar while the session waits. Confirm the idle counter
+   starts the line and ticks once a second. Send a prompt: the counter hides
+   while the model answers and returns with the new wait.
+9. Type `/essentials` and disable **Idle Session Clock**: the counter
+   disappears within a second. Re-enable it: the counter returns with the
+   true elapsed time.
 10. Run `opencode auth login` and set `permission.bash` to `ask` in
     `opencode.json`. Ask the agent to run a safe Bash command. A Jev
     probability of at least `0.80` replies once. A lower or invalid result
@@ -391,6 +392,6 @@ npm run typecheck # tsc --noEmit
 12. Trigger a pending permission with a low Jev probability. Check that the
     desktop notification offers **Allow once**. Dismissing it must leave the
     OpenCode prompt open.
-13. Complete an assistant response. Check that the themed footer shows output
-    tokens, output speed, first-text timing, response duration, and cost.
-    Disable **Response Usage Status** to hide the line.
+13. Complete an assistant response. Check that the status bar shows token
+    rate, first-text latency, and total latency without an output count or
+    cost. Disable **Response Usage Status** to hide those metrics.
