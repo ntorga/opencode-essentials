@@ -150,10 +150,11 @@ actions.
 
 ## Response Usage Status
 
-Shows output tokens per second, first-text latency, and total latency for the
-newest completed assistant response. The themed status bar places the idle
-counter first when the session is idle. It does not show the output token
-count or response cost.
+Shows output tokens per second, first-text latency, and total latency,
+averaged over the newest completed assistant responses. The themed status bar
+places the idle counter first when the session is idle. Slow rates and long
+first-text latency change color. It does not show the output token count or
+response cost.
 
 **Flow:**
 
@@ -164,15 +165,18 @@ count or response cost.
 3. `src/valueObject/sessionId.ts` — validates the active session ID before the
    TUI reads its messages and parts.
 4. `src/usage-status.tsx` and `src/statusBar/usageStatus.ts` — read the validated
-   session's messages and parts, then select and format the newest valid
-   completed assistant response without a redundant context count.
-5. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
+   session's messages and parts, then average the newest three completed
+   responses. The token rate divides output tokens by completed text-part
+   time only, and slow values render in warning or error colors.
+5. `src/statusBar/tone.ts` — the shared muted/warning/error tone vocabulary
+   and its theme mapping for status-bar text.
+6. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
    `src/valueObject/timestampMs.ts` — validate response metrics before
    calculations.
-6. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
+7. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
    and `src/state.ts` — expose and persist the `/essentials` feature toggle.
-7. `src/statusBar/usageStatus.test.ts` — tests response selection, timing, and displayed
-   metrics.
+8. `src/statusBar/usageStatus.test.ts` — tests response selection, timing,
+   generation-time rates, tones, and displayed metrics.
 
 ---
 

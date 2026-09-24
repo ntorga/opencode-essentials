@@ -166,11 +166,17 @@ The shared status bar appears after a completed assistant response. It shows
 output tokens per second, first-text latency, and total latency. When the
 session is idle, the idle counter appears first on the same padded line.
 
-- Tokens per second uses output tokens divided by the full response time.
+- Tokens per second uses output tokens divided by text generation time only:
+  the summed durations of completed text parts. Tool runs, permission waits,
+  and other pauses inside a response do not lower the rate. A response
+  without a completed text part falls back to its full duration.
 - First-text timing starts when OpenCode creates the assistant message. It
   ends when the first non-synthetic text part starts. It does not include the
   time from user submission to assistant-message creation.
 - Total latency runs from assistant-message creation to completion.
+- The token rate turns yellow below 40 tok/s and red below 20 tok/s. The
+  first-text latency turns yellow above 3s and red above 10s. Total latency
+  follows the workload, so it stays muted.
 - The line omits first-text timing when that time is missing or invalid.
 - The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
@@ -180,8 +186,9 @@ session is idle, the idle counter appears first on the same padded line.
 The project provides four native OpenCode skills in `.opencode/skills/`:
 `grill`, `humanizer`, `web-search`, and `agent-browser`. Matching files in
 `.opencode/commands/` expose `/grill`, `/humanizer`, `/web-search`, and
-`/agent-browser`. The grill asks at most eight questions total, with no more
-than three in one round. Restart OpenCode after changing a skill or command.
+`/agent-browser`. The grill asks only about decisions that are hard to revert
+or force rework, capped at 30 questions, with no more than three in one round.
+Restart OpenCode after changing a skill or command.
 
 ## Installation
 
