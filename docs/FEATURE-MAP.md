@@ -70,8 +70,8 @@ dialog. It is a TUI-only feature: it has no server hooks.
 4. `src/statusBar/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
    the auto-compactor's summary turn — and formats elapsed time, local start
-   date and time, and timer color. It hides the line unless the session status
-   is `idle`.
+   date and time, and timer color. The host only tracks busy and retry states,
+   so a missing status is idle; the line hides only while busy or retrying.
 5. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
    compactor flag, and the timeout override from the shared state file each
    tick, so `/essentials` changes take effect without a restart.

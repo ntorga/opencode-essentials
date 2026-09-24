@@ -110,16 +110,19 @@ function resolveIdleClockColor(
   return "muted"
 }
 
-// The line is shown only while the session is idle: busy or retry means the
-// model is still working, and a missing status means the host has not synced
-// the session yet. An unanchored or future anchor is not displayed.
+// The host keeps status entries only while a session is busy or retrying:
+// its store is seeded from the server's map, idle entries are deleted, and
+// upstream renders a missing status as idle too. So a missing status means
+// the session is idle — including one reopened from history. The line is
+// hidden while busy or retrying, and while no completed assistant turn
+// provides an anchor.
 export function resolveIdleClockLine(
   status: IdleClockStatus | undefined,
   messages: readonly IdleClockMessage[],
   nowMs: number,
   compactor: IdleClockCompactor,
 ): IdleClockLine | undefined {
-  if (status !== "idle") return undefined
+  if (status === "busy" || status === "retry") return undefined
   const anchorMs = resolveIdleAnchorMs(messages)
   if (anchorMs === undefined) return undefined
   const elapsedMs = nowMs - anchorMs

@@ -137,7 +137,7 @@ describe("resolveIdleClockLine", () => {
   const settled = () => clockMessages(user(0), assistant(10, 20))
   const compactor = { enabled: true, idleTimeoutMs: 10 * 60_000 }
 
-  for (const status of ["busy", "retry", undefined] as const) {
+  for (const status of ["busy", "retry"] as const) {
     it(`hides while ${String(status)}`, () => {
       const line = resolveIdleClockLine(
         status,
@@ -148,6 +148,18 @@ describe("resolveIdleClockLine", () => {
       assert.equal(line, undefined)
     })
   }
+
+  it("shows while a reopened session has no status entry", () => {
+    const line = resolveIdleClockLine(
+      undefined,
+      settled(),
+      T0 + 5_000,
+      compactor,
+    )
+    assert.ok(line)
+    assert.equal(line.color, "muted")
+    assert.match(line.text, /^idle \d+s \| since /)
+  })
 
   it("hides when nothing has completed", () => {
     const messages = clockMessages(user(0))

@@ -2,6 +2,7 @@
 
 ```log
 0.3.0 - 2026/09/24
+fix: show the idle clock for reopened sessions
 chore: bump package version to 0.3.0
 docs: describe generation-time rates and metric colors
 fix: rate tok/s by text generation time and tone slow metrics

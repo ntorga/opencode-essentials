@@ -111,8 +111,9 @@ the host's synced state, so it has no server hooks.
   shared state file, then the TUI plugin option. Keep the TUI plugin option
   in `tui.json` aligned with the server plugin option in `opencode.json`.
 - It re-derives the wait from synced message state each second, so it needs
-  no event subscription, and a session already idle when the TUI started
-  shows its true elapsed wait.
+  no event subscription. The host tracks only busy and retry sessions, so a
+  session with no status entry is idle: a session reopened from history, or
+  switched to mid-day, shows its true elapsed wait immediately.
 - The master switch and the **Idle Session Clock** row in `/essentials`
   gate it. A change takes effect on the next tick, without a restart. An
   unreadable state file hides the line rather than resurrecting a clock the
