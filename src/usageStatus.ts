@@ -6,10 +6,12 @@ import type { TokenCount } from "./valueObject/tokenCount.ts"
 import { newTokenCount } from "./valueObject/tokenCount.ts"
 import { isRecord } from "./valueObject/util.ts"
 
+const TOKEN_RATE_RESPONSE_WINDOW_SIZE = 3
+
 export type ResponseUsageStatus = {
-  tokensPerSecond: number
-  firstTextMs?: number
-  responseDurationMs: number
+  averageTokensPerSecond: number
+  averageFirstTextLatencyMs?: number
+  averageResponseDurationMs: number
 }
 
 type CompletedAssistantMessage = {
@@ -76,50 +78,65 @@ export function resolveResponseUsageStatus(
   rawMessages: readonly unknown[],
   readParts: (messageId: MessageId) => readonly unknown[],
 ): ResponseUsageStatus | undefined {
-  let latestMessage: CompletedAssistantMessage | undefined
-  for (const rawMessage of rawMessages) {
-    const message = newCompletedAssistantMessage(rawMessage)
-    if (!message) continue
-    if (
-      latestMessage === undefined ||
-      message.completedAtMs > latestMessage.completedAtMs
-    ) {
-      latestMessage = message
-    }
-  }
-  if (!latestMessage) return undefined
+  const recentMessages = rawMessages
+    .flatMap((rawMessage) => {
+      const message = newCompletedAssistantMessage(rawMessage)
+      return message === undefined ? [] : [message]
+    })
+    .toSorted((first, second) => second.completedAtMs - first.completedAtMs)
+    .slice(0, TOKEN_RATE_RESPONSE_WINDOW_SIZE)
+  if (recentMessages.length === 0) return undefined
 
-  const responseDurationMs =
-    latestMessage.completedAtMs - latestMessage.createdAtMs
-  const responseDurationSeconds = responseDurationMs / 1_000
-  const tokensPerSecond = latestMessage.outputTokens / responseDurationSeconds
-  if (!Number.isFinite(tokensPerSecond)) return undefined
+  const totalOutputTokens = recentMessages.reduce(
+    (total, message) => total + message.outputTokens,
+    0,
+  )
+  const totalResponseDurationMs = recentMessages.reduce(
+    (total, message) => total + (message.completedAtMs - message.createdAtMs),
+    0,
+  )
+  const tokenRateDurationSeconds = totalResponseDurationMs / 1_000
+  const averageTokensPerSecond = totalOutputTokens / tokenRateDurationSeconds
+  if (!Number.isFinite(averageTokensPerSecond)) return undefined
 
-  const firstTextMs = resolveFirstTextMs(readParts(latestMessage.id))
-  const firstTextStartedAfterMessageCreation =
-    firstTextMs !== undefined && firstTextMs >= latestMessage.createdAtMs
-  const timeToFirstTextMs = firstTextStartedAfterMessageCreation
-    ? firstTextMs - latestMessage.createdAtMs
-    : undefined
+  const firstTextLatenciesMs = recentMessages.flatMap((message) => {
+    const firstTextStartedAtMs = resolveFirstTextMs(readParts(message.id))
+    if (firstTextStartedAtMs === undefined) return []
+    const firstTextStartedAfterMessageCreation =
+      firstTextStartedAtMs >= message.createdAtMs
+    if (!firstTextStartedAfterMessageCreation) return []
+    return [firstTextStartedAtMs - message.createdAtMs]
+  })
+  const totalFirstTextLatencyMs = firstTextLatenciesMs.reduce(
+    (total, latencyMs) => total + latencyMs,
+    0,
+  )
+  const averageFirstTextLatencyMs =
+    firstTextLatenciesMs.length === 0
+      ? undefined
+      : totalFirstTextLatencyMs / firstTextLatenciesMs.length
+  const averageResponseDurationMs =
+    totalResponseDurationMs / recentMessages.length
 
   return {
-    tokensPerSecond,
-    firstTextMs: timeToFirstTextMs,
-    responseDurationMs,
+    averageTokensPerSecond,
+    averageFirstTextLatencyMs,
+    averageResponseDurationMs,
   }
 }
 
 export function formatResponseUsageStatus(usage: ResponseUsageStatus): string {
   const firstTextLatency =
-    usage.firstTextMs === undefined
+    usage.averageFirstTextLatencyMs === undefined
       ? undefined
-      : formatDuration(usage.firstTextMs)
-  const totalLatency = formatDuration(usage.responseDurationMs)
+      : formatDuration(usage.averageFirstTextLatencyMs)
+  const averageTotalLatency = formatDuration(usage.averageResponseDurationMs)
   const latencyDetails =
     firstTextLatency === undefined
-      ? `total latency: ${totalLatency}`
-      : `first text latency: ${firstTextLatency} | total: ${totalLatency}`
-  return [`${Math.round(usage.tokensPerSecond)} tok/s`, latencyDetails].join(
-    " · ",
-  )
+      ? `total latency: ${averageTotalLatency}`
+      : `first text latency: ${firstTextLatency} | total: ${averageTotalLatency}`
+  return [
+    `${Math.round(usage.averageTokensPerSecond)} tok/s`,
+    latencyDetails,
+  ].join(" · ")
 }

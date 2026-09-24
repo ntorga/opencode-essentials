@@ -128,7 +128,7 @@ export function resolveIdleClockLine(
   const displayDuration = formatIdleDuration(elapsedMs)
   const idleStart = formatIdleStartTimestamp(anchorMs)
   return {
-    text: `idle ${displayDuration} · since ${idleStart}`,
+    text: `idle ${displayDuration} | since ${idleStart}`,
     color: resolveIdleClockColor(elapsedMs, compactor),
   }
 }

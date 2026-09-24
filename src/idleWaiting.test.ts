@@ -165,7 +165,7 @@ describe("resolveIdleClockLine", () => {
       compactor,
     )
     assert.deepEqual(line, {
-      text: `idle 5m 19s · since ${new Date(T0 + 20).toLocaleString(undefined, {
+      text: `idle 5m 19s | since ${new Date(T0 + 20).toLocaleString(undefined, {
         dateStyle: "short",
         timeStyle: "short",
       })}`,

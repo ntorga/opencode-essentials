@@ -35,27 +35,82 @@ function createAssistantMessage(
 }
 
 describe("resolveResponseUsageStatus", () => {
-  it("measures the newest completed answer", () => {
+  it("averages both latencies across the token-rate window", () => {
     const usage = resolveResponseUsageStatus(
       [
-        createAssistantMessage({ completedAfterMs: 2_000 }),
         createAssistantMessage({
-          id: "msg_newest",
+          id: "msg_latest",
+          createdAfterMs: 20_000,
+          completedAfterMs: 30_000,
+          outputTokens: 10,
+        }),
+        createAssistantMessage({
+          id: "msg_oldest",
+          completedAfterMs: 1_000,
+          outputTokens: 1_000,
+        }),
+        createAssistantMessage({
+          id: "msg_middle",
+          createdAfterMs: 10_000,
+          completedAfterMs: 15_000,
+          outputTokens: 10,
+        }),
+        createAssistantMessage({
+          id: "msg_recent",
+          createdAfterMs: 2_000,
+          completedAfterMs: 4_000,
+          outputTokens: 40,
+        }),
+      ],
+      (messageId) => {
+        if (messageId === "msg_latest") {
+          return [
+            { type: "text", time: { start: RESPONSE_STARTED_AT + 20_650 } },
+          ]
+        }
+        if (messageId === "msg_recent") {
+          return [
+            { type: "text", time: { start: RESPONSE_STARTED_AT + 2_200 } },
+          ]
+        }
+        return []
+      },
+    )
+
+    assert.ok(usage)
+    assert.deepEqual(usage, {
+      averageTokensPerSecond: 60 / 17,
+      averageFirstTextLatencyMs: 425,
+      averageResponseDurationMs: 17_000 / 3,
+    })
+    assert.equal(
+      formatResponseUsageStatus(usage),
+      "4 tok/s · first text latency: 425ms | total: 5.7s",
+    )
+  })
+
+  it("uses available responses when fewer than three have completed", () => {
+    const usage = resolveResponseUsageStatus(
+      [
+        createAssistantMessage({
+          id: "msg_earlier",
+          completedAfterMs: 2_000,
+          outputTokens: 20,
+        }),
+        createAssistantMessage({
+          id: "msg_latest",
           createdAfterMs: 10_000,
           completedAfterMs: 15_000,
           outputTokens: 40,
         }),
       ],
-      (messageId) =>
-        messageId === "msg_newest"
-          ? [{ type: "text", time: { start: RESPONSE_STARTED_AT + 10_650 } }]
-          : [],
+      () => [],
     )
 
     assert.deepEqual(usage, {
-      tokensPerSecond: 8,
-      firstTextMs: 650,
-      responseDurationMs: 5_000,
+      averageTokensPerSecond: 60 / 7,
+      averageFirstTextLatencyMs: undefined,
+      averageResponseDurationMs: 3_500,
     })
   })
 
@@ -82,8 +137,8 @@ describe("resolveResponseUsageStatus", () => {
     ])
 
     assert.ok(usage)
-    assert.equal(usage.firstTextMs, undefined)
-    assert.equal(usage.tokensPerSecond, 5)
+    assert.equal(usage.averageFirstTextLatencyMs, undefined)
+    assert.equal(usage.averageTokensPerSecond, 5)
     assert.equal(
       formatResponseUsageStatus(usage),
       "5 tok/s · total latency: 5.0s",
@@ -112,7 +167,7 @@ describe("resolveResponseUsageStatus", () => {
 
     const usage = resolveResponseUsageStatus([message], () => [])
 
-    assert.equal(usage?.tokensPerSecond, 5)
+    assert.equal(usage?.averageTokensPerSecond, 5)
   })
 
   it("formats token rate and labels both latency values", () => {
