@@ -154,9 +154,8 @@ function StatusBarView(props: {
                 <For each={segments()}>
                   {(segment: ResponseUsageSegment, index: () => number) => (
                     <>
-                      <Show when={index() > 0}>
-                        <span> {" · "} </span>
-                      </Show>
+                      {index() > 0 ? " · " : ""}
+                      {segment.prefix ?? ""}
                       <span
                         style={{
                           fg: resolveStatusBarTextColor(
@@ -165,8 +164,9 @@ function StatusBarView(props: {
                           ),
                         }}
                       >
-                        {segment.text}
+                        {segment.value}
                       </span>
+                      {segment.suffix ?? ""}
                     </>
                   )}
                 </For>

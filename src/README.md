@@ -168,16 +168,18 @@ output tokens per second, thinking-inclusive throughput when the model
 reasons, and the start, first-text, and total latencies. When the session is
 idle, the idle counter appears first on the same padded line.
 
-- Tokens per second uses output tokens divided by text generation time only:
-  the summed durations of completed text parts. Reasoning is excluded from
-  both sides, so the number is the speed of visible streaming. Tool runs,
-  permission waits, and other pauses inside a response do not lower the
-  rate. A response without a completed text part falls back to its full
-  duration.
-- When a response carries reasoning tokens and the two rates differ, the
-  rate shows as `X/Y tok/s`: visible-text speed over total generation
-  throughput (text plus reasoning tokens over text plus reasoning part
-  time). The gap shows how much of the turn was thinking.
+- The rate divides generated tokens by active generation time: the window
+  from a response's first to its last part timestamp, minus tool execution.
+  Streaming, thinking, argument writing, and queue gaps count; tool runs and
+  permission waits do not. A response without measurable part timing falls
+  back to its full duration.
+- The pair `X/Y tok/s` reads output speed over total generation speed. X
+  counts text and tool-call tokens; Y adds reasoning tokens, over the same
+  active time. X never exceeds Y; the gap is how much of the turn's budget
+  went to thinking.
+- Known limit: `tokens.output` includes tool-call payloads, and a response
+  that opens with a tool call hides that call's argument time before the
+  first part timestamp. Such turns read slightly fast.
 - Latency shows as `latency: start/first text/total`, all measured from
   assistant-message creation. Start is when the model began producing its
   first part — reasoning or text. First text is when visible text began;
@@ -187,7 +189,8 @@ idle, the idle counter appears first on the same padded line.
   timing is missing, it degrades to the total alone, muted.
 - The token rate turns yellow below 40 tok/s and red below 20 tok/s. The
   latency group takes its color from the start value: yellow above 3s, red
-  above 10s. A slow start is a provider problem; long thinking is not.
+  above 10s. A slow start is a provider problem; long thinking is not. Only
+  the numbers carry color; labels and units stay muted.
 - The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
 

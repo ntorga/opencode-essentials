@@ -2,6 +2,7 @@
 
 ```log
 0.3.0 - 2026/09/24
+fix: rate active generation time and polish metric display
 docs: describe paired rates and the latency group
 feat: show thinking-inclusive rate and grouped latencies
 fix: show the idle clock for reopened sessions

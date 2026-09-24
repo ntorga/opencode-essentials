@@ -22,15 +22,16 @@ export type ResponseUsageStatus = {
 }
 
 export type ResponseUsageSegment = {
-  text: string
+  value: string
   tone: StatusBarTone
+  prefix?: string
+  suffix?: string
 }
 
 type GenerationPartTiming = {
   firstActivityStartMs: TimestampMs | undefined
   firstTextStartMs: TimestampMs | undefined
-  textMs: number
-  reasoningMs: number
+  activeMs: number
 }
 
 function partTimeMs(
@@ -42,43 +43,88 @@ function partTimeMs(
   return { startMs, endMs: newTimestampMs(rawPart.time.end) }
 }
 
+function minMs(
+  current: TimestampMs | undefined,
+  candidate: TimestampMs,
+): TimestampMs {
+  return current === undefined || candidate < current ? candidate : current
+}
+
+function maxMs(
+  current: TimestampMs | undefined,
+  candidate: TimestampMs,
+): TimestampMs {
+  return current === undefined || candidate > current ? candidate : current
+}
+
+function toolExecutionMs(rawState: unknown): number | undefined {
+  if (!isRecord(rawState)) return undefined
+  if (rawState.status !== "completed" && rawState.status !== "error") {
+    return undefined
+  }
+  if (!isRecord(rawState.time)) return undefined
+  const startMs = newTimestampMs(rawState.time.start)
+  const endMs = newTimestampMs(rawState.time.end)
+  if (startMs === undefined || endMs === undefined || endMs <= startMs) {
+    return undefined
+  }
+  return endMs - startMs
+}
+
+// The window spans the first to the last part timestamp. Tool execution is
+// cut out: those seconds hold no model output. The gaps left behind —
+// writing the next tool call, queueing, resuming after a result — are
+// generation time, so they stay in.
 function measureGenerationParts(
   rawParts: readonly unknown[],
 ): GenerationPartTiming {
   let firstActivityStartMs: TimestampMs | undefined
   let firstTextStartMs: TimestampMs | undefined
-  let textMs = 0
-  let reasoningMs = 0
+  let windowStartMs: TimestampMs | undefined
+  let windowEndMs: TimestampMs | undefined
+  let toolMs = 0
   for (const rawPart of rawParts) {
     if (!isRecord(rawPart)) continue
     const isText = rawPart.type === "text"
     const isReasoning = rawPart.type === "reasoning"
-    if (!isText && !isReasoning) continue
+    const isTool = rawPart.type === "tool"
+    if (!isText && !isReasoning && !isTool) continue
     if (isText && (rawPart.synthetic === true || rawPart.ignored === true)) {
+      continue
+    }
+    if (isTool) {
+      const executionMs = toolExecutionMs(rawPart.state)
+      if (executionMs === undefined) continue
+      if (!isRecord(rawPart.state) || !isRecord(rawPart.state.time)) continue
+      const executionStartMs = newTimestampMs(rawPart.state.time.start)
+      const executionEndMs = newTimestampMs(rawPart.state.time.end)
+      if (executionStartMs !== undefined) {
+        windowStartMs = minMs(windowStartMs, executionStartMs)
+      }
+      if (executionEndMs !== undefined) {
+        windowEndMs = maxMs(windowEndMs, executionEndMs)
+      }
+      toolMs += executionMs
       continue
     }
     const part = partTimeMs(rawPart)
     if (part === undefined) continue
-    if (
-      firstActivityStartMs === undefined ||
-      part.startMs < firstActivityStartMs
-    ) {
-      firstActivityStartMs = part.startMs
+    windowStartMs = minMs(windowStartMs, part.startMs)
+    firstActivityStartMs = minMs(firstActivityStartMs, part.startMs)
+    if (part.endMs !== undefined) {
+      windowEndMs = maxMs(windowEndMs, part.endMs)
     }
-    if (!isText) {
-      if (part.endMs !== undefined && part.endMs > part.startMs) {
-        reasoningMs += part.endMs - part.startMs
-      }
-      continue
-    }
-    if (firstTextStartMs === undefined || part.startMs < firstTextStartMs) {
-      firstTextStartMs = part.startMs
-    }
-    if (part.endMs !== undefined && part.endMs > part.startMs) {
-      textMs += part.endMs - part.startMs
+    if (isText) {
+      firstTextStartMs = minMs(firstTextStartMs, part.startMs)
     }
   }
-  return { firstActivityStartMs, firstTextStartMs, textMs, reasoningMs }
+  const activeMs =
+    windowStartMs !== undefined &&
+    windowEndMs !== undefined &&
+    windowEndMs > windowStartMs
+      ? Math.max(0, windowEndMs - windowStartMs - toolMs)
+      : 0
+  return { firstActivityStartMs, firstTextStartMs, activeMs }
 }
 
 function formatDuration(durationMs: number): string {
@@ -110,7 +156,11 @@ function averageLatencyMs(
 ): number | undefined {
   const latenciesMs = responseTimings.flatMap(({ message, timing }) => {
     const startMs = readStartMs(timing)
-    if (startMs === undefined || startMs < message.createdAtMs) return []
+    const startedInsideMessageLifetime =
+      startMs !== undefined &&
+      startMs >= message.createdAtMs &&
+      startMs <= message.completedAtMs
+    if (!startedInsideMessageLifetime) return []
     return [startMs - message.createdAtMs]
   })
   if (latenciesMs.length === 0) return undefined
@@ -147,22 +197,18 @@ export function resolveResponseUsageStatus(
     (total, message) => total + message.reasoningTokens,
     0,
   )
-  const totalTextMs = responseTimings.reduce(
+  const totalActiveMs = responseTimings.reduce(
     (total, response) =>
       total +
-      (response.timing.textMs > 0
-        ? response.timing.textMs
+      (response.timing.activeMs > 0
+        ? response.timing.activeMs
         : response.lifetimeMs),
     0,
   )
-  const totalReasoningMs = responseTimings.reduce(
-    (total, response) => total + response.timing.reasoningMs,
-    0,
-  )
-  const averageTokensPerSecond = totalOutputTokens / (totalTextMs / 1_000)
+  const activeSeconds = totalActiveMs / 1_000
+  const averageTokensPerSecond = totalOutputTokens / activeSeconds
   const averageGenerationTokensPerSecond =
-    (totalOutputTokens + totalReasoningTokens) /
-    ((totalTextMs + totalReasoningMs) / 1_000)
+    (totalOutputTokens + totalReasoningTokens) / activeSeconds
   if (
     !Number.isFinite(averageTokensPerSecond) ||
     !Number.isFinite(averageGenerationTokensPerSecond)
@@ -199,13 +245,14 @@ export function formatResponseUsageStatus(
 ): ResponseUsageSegment[] {
   const textRate = Math.round(usage.averageTokensPerSecond)
   const generationRate = Math.round(usage.averageGenerationTokensPerSecond)
-  const rateText =
+  const rateValue =
     usage.includesReasoning && generationRate !== textRate
-      ? `${textRate}/${generationRate} tok/s`
-      : `${textRate} tok/s`
+      ? `${textRate}/${generationRate}`
+      : `${textRate}`
   const segments: ResponseUsageSegment[] = [
     {
-      text: rateText,
+      value: rateValue,
+      suffix: " tok/s",
       tone: resolveTokenRateTone(usage.averageTokensPerSecond),
     },
   ]
@@ -225,7 +272,8 @@ export function formatResponseUsageStatus(
   ]
   const healthMs = activityMs ?? textMs
   segments.push({
-    text: `latency: ${values.join("/")}`,
+    value: values.join("/"),
+    prefix: "latency: ",
     tone: healthMs === undefined ? "muted" : resolveLatencyTone(healthMs),
   })
   return segments
