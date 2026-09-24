@@ -12,7 +12,7 @@ Compacts an OpenCode session automatically after the session stays continuously 
 2. `src/features/registry.ts` — lists the `idle-auto-compactor` `SuiteFeature` for both entry points.
 3. `src/features/idle-auto-compactor.ts` — the feature. Subscribes to `session.status` and `session.deleted`. An idle status arms a one-shot timer; a busy status cancels it; a genuine `chat.message` reopens the idle period. When the timer fires, it skips a last compaction and a newest real turn under 32,000 tokens. It summarizes with the measured turn's model. The state machine absorbs the compaction's own busy/idle echoes.
 4. `src/state.ts` — the shared config protocol. The server reads `$XDG_DATA_HOME/opencode/essentials.json` at each decision point: the master switch gates the feature, and the file's timeout setting overrides the plugin option.
-5. `src/valueObject/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `new*` constructor before use.
+5. `src/valueObject/` + `src/documents/` — the trust boundary. Every external string and number (event session ids, model tokens, config timeouts, state-file keys, `XDG_DATA_HOME`) becomes a branded type through a `new*` constructor, and every whole payload (the state file, message events, the auth store entry) passes a parser, before use.
 6. `src/tui.ts` — TUI companion, registered in `tui.json` (the TUI host does
    not read `opencode.json`). The `/essentials` command opens a
    `DialogSelect` with the master switch, the feature flags, and the
@@ -36,7 +36,7 @@ runtime.
    `session.status` event, settles the period synchronously (the same
    settle-flag echo absorption the idle compactor uses), then reads
    messages and the provider list and decides.
-2. `src/contextCeiling.ts` — pure logic: measure the newest real completed
+2. `src/features/contextCeiling.ts` — pure logic: measure the newest real completed
    turn (usage tokens + model ref, skipping summary turns), read the model's
    context window from the provider list, clamp the ceiling to it.
 3. `src/features/sessionSummarizer.ts` — the shared `session.summarize`
@@ -44,7 +44,7 @@ runtime.
    token-ceiling compaction asks OpenCode to continue after its summary.
 4. `src/valueObject/contextTokens.ts` — the validated token ceiling:
    presets 128k–1M, default 384k, hard max 2,000,000.
-5. `src/state.ts` + `src/valueObject/essentialsConfig.ts` — the
+5. `src/state.ts` + `src/documents/essentialsDocument.ts` — the
    `ceilingTokens` settings entry in the shared state file; the
    `/essentials` submenu in `src/tui.ts` writes it.
 
@@ -65,9 +65,9 @@ dialog. It is a TUI-only feature: it has no server hooks.
    option.
 2. `src/usage-status.tsx` — registers one padded `app_bottom` row. It puts the
    idle counter before the response metrics.
-3. `src/idleClockStatus.ts` — reads idle session state and resolves the
+3. `src/statusBar/idleClockStatus.ts` — reads idle session state and resolves the
    configured timeout and display color.
-4. `src/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
+4. `src/statusBar/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
    the auto-compactor's summary turn — and formats elapsed time, local start
    date and time, and timer color. It hides the line unless the session status
@@ -102,21 +102,6 @@ run an ask command unwrapped. Interpreter code, script files, `make`, `npm run`,
 
 ---
 
-## Sub-agent Timestamps
-
-Task rows in the OpenCode TUI show the local date and time when a sub-agent
-starts and finishes.
-
-**Flow:**
-
-1. `tmp/opencode-src/packages/tui/src/routes/session/index.tsx` — reads the
-   task tool's start and finish timestamps and formats them with the TUI's
-   locale helper.
-2. `tmp/opencode-src/packages/tui/test/cli/tui/inline-tool-wrap-snapshot.test.tsx`
-   — verifies the displayed timestamp format.
-
----
-
 ## Permission Assistant and Desktop Notifications
 
 Checks pending Bash permission requests with OpenRouter's Decisions API. Jev is
@@ -137,9 +122,9 @@ a desktop notification when TUI notifications are enabled.
    `src/valueObject/permissionRequestId.ts`, `src/valueObject/openRouterApiKey.ts`,
    and `src/valueObject/openRouterModelId.ts` — validate request fields,
    credentials, model IDs, and reply identifiers.
-5. `src/permissionDecision.ts` — sends Bash patterns to the Decisions API and
+5. `src/features/permissionDecision.ts` — sends Bash patterns to the Decisions API and
    validates the returned safe probability.
-6. `src/notificationText.ts` — places request text after the end-of-options
+6. `src/features/notificationText.ts` — places request text after the end-of-options
    marker and escapes markup characters before passing it as the notification
    body.
 7. `src/permission-assistant.tsx` — replies `once` at 0.80 or higher.
@@ -148,13 +133,13 @@ a desktop notification when TUI notifications are enabled.
    `once`.
 8. `src/features/permission-assistant.ts`, `src/features/registry.ts`,
    `src/tui.ts`, `src/state.ts`, and
-   `src/valueObject/essentialsConfig.ts` — expose the feature toggle and
+   `src/documents/essentialsDocument.ts` — expose the feature toggle and
    persist a model selected in `/essentials`.
-9. `src/openRouterAuth.test.ts`, `src/permissionDecision.test.ts`,
+9. `src/openRouterAuth.test.ts`, `src/features/permissionDecision.test.ts`,
    `src/valueObject/permissionRequest.test.ts`,
    `src/valueObject/openRouterApiKey.test.ts`, and
    `src/valueObject/openRouterModelId.test.ts` — test credential and model
-   validation. `src/notificationText.test.ts` checks notification text safety.
+   validation. `src/features/notificationText.test.ts` checks notification text safety.
 
 OpenCode v1 creates the pending request before the TUI receives it. The
 permission prompt may appear while Jev classifies it. The notification button
@@ -178,7 +163,7 @@ count or response cost.
    footer row for the active session.
 3. `src/valueObject/sessionId.ts` — validates the active session ID before the
    TUI reads its messages and parts.
-4. `src/usage-status.tsx` and `src/usageStatus.ts` — read the validated
+4. `src/usage-status.tsx` and `src/statusBar/usageStatus.ts` — read the validated
    session's messages and parts, then select and format the newest valid
    completed assistant response without a redundant context count.
 5. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
@@ -186,7 +171,7 @@ count or response cost.
    calculations.
 6. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
    and `src/state.ts` — expose and persist the `/essentials` feature toggle.
-7. `src/usageStatus.test.ts` — tests response selection, timing, and displayed
+7. `src/statusBar/usageStatus.test.ts` — tests response selection, timing, and displayed
    metrics.
 
 ---

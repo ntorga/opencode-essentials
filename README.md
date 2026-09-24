@@ -15,35 +15,41 @@ bash commands.
 
 ## Features
 
-- **Idle Auto Compactor** (implemented): compacts a session after it stays
-  continuously idle, 30 minutes by default. It skips recent compactions and
-  sessions below 32,000 context tokens. Event-driven, never polls.
-- **Token Ceiling Compactor** (implemented): compacts a session once its
-  context passes a chosen token ceiling — 384k by default, 128k to 1M
-  selectable — regardless of the model, clamped to smaller model windows.
-  OpenCode continues the model after it creates the summary.
-- **Idle Session Clock** (implemented): shows how long the open session has
-  been idle since the model stopped answering. It starts the shared status
-  bar and changes color as the compactor timeout approaches. Toggled from
-  `/essentials`.
-- **Permission Assistant** (implemented): sends pending Bash permission
-  requests to OpenRouter's Decisions API. Jev is the default model. A safe
-  probability of `0.80` or higher replies once. Other results keep the
-  OpenCode prompt open. It reuses credentials from `opencode auth login`.
-- **Permission Notifications** (implemented): uses the freedesktop.org
-  notification service on Linux. The notification offers an **Allow once**
-  action when the notification server supports actions. OpenCode keeps its
-  normal prompt as a fallback.
-- **Response Usage Status** (implemented): shows output speed, first-text
-  latency, and total latency in the shared themed status bar. Toggle it from
-  `/essentials`.
-- **Embedded Skills and Commands** (implemented): adds `/grill`,
-  `/humanizer`, `/web-search`, and `/agent-browser` with matching native
-  OpenCode skills.
-- **Exec wrapper guard** (implemented): checks commands hidden by natural
-  bash wrappers against the generated permission rules.
-- **Sub-agent timestamps** (implemented in `tmp/opencode-src`): task rows show
-  when each sub-agent started and finished.
+- **Idle Auto Compactor**: compacts a session after it stays continuously idle,
+  30 minutes by default. It skips a session that was recently compacted or
+  holds under 32,000 context tokens. It reacts to events and never polls.
+  Use it when sessions go untouched overnight and you want the next task to
+  start on a trimmed context.
+- **Token Ceiling Compactor**: compacts a session once its context passes a
+  chosen token ceiling, regardless of the model: 384k by default, selectable
+  from 128k to 1M, clamped down to fit smaller model windows. OpenCode
+  continues the model after it creates the summary. Use it on long refactors
+  so the session never hits the model's context wall mid-task.
+- **Idle Session Clock**: shows how long the open session has been idle since
+  the model stopped answering. It leads the shared status bar and changes
+  color as the compactor timeout approaches. Toggle it from `/essentials`.
+  Use it to spot which of your open sessions has been waiting on input the
+  longest, and to see when auto-compaction is about to fire.
+- **Permission Assistant**: sends pending Bash permission requests to
+  OpenRouter's Decisions API, with Jev as the default model. A safe
+  probability of `0.80` or higher gets one reply; every other result keeps the
+  OpenCode prompt open. It reuses credentials from `opencode auth login`. Use
+  it when a routine `git push` would otherwise stall an unattended run.
+- **Permission Notifications**: uses the freedesktop.org notification service
+  on Linux. The notification offers an "Allow once" action when the
+  notification server supports actions. OpenCode keeps its normal prompt as a
+  fallback. Use it when the terminal is in the background and you want to
+  answer a pending request from the notification itself.
+- **Response Usage Status**: shows output speed, first-text latency, and total
+  latency in the shared themed status bar. Toggle it from `/essentials`. Use
+  it to tell a stuck provider from a long generation without guessing.
+- **Embedded Skills and Commands**: adds `/grill`, `/humanizer`,
+  `/web-search`, and `/agent-browser` with matching native OpenCode skills.
+  Use `/grill` to stress-test a plan before code, `/web-search` for research,
+  and `/agent-browser` to check rendered UI.
+- **Exec wrapper guard**: checks commands hidden by natural bash wrappers
+  against the generated permission rules. Use it so a rule that rejects
+  `git push` still holds when the agent wraps the call in a bash script.
 
 ## Development
 

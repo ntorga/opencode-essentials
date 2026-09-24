@@ -2,6 +2,9 @@
 
 ```log
 0.2.0 - 2026/09/24
+docs: rewrite feature list and sync documented paths
+chore: add override banning patched-OpenCode features
+refactor: extract document codecs and group src by concern
 feat: grill only costly decisions in plan interviews
 refactor: align native skills with the framework playbook
 feat: average response status metrics
