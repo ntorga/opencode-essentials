@@ -13,6 +13,7 @@ function createAssistantMessage(
     createdAfterMs?: number
     completedAfterMs?: number
     outputTokens?: number
+    reasoningTokens?: number
     summary?: boolean
   } = {},
 ) {
@@ -27,7 +28,7 @@ function createAssistantMessage(
     tokens: {
       input: 100,
       output: input.outputTokens ?? 25,
-      reasoning: 5,
+      reasoning: input.reasoningTokens ?? 0,
       cache: { read: 20, write: 2 },
     },
     cost: 0.0025,
@@ -80,13 +81,15 @@ describe("resolveResponseUsageStatus", () => {
     assert.ok(usage)
     assert.deepEqual(usage, {
       averageTokensPerSecond: 60 / 17,
+      averageGenerationTokensPerSecond: 60 / 17,
+      includesReasoning: false,
+      averageFirstActivityLatencyMs: 425,
       averageFirstTextLatencyMs: 425,
       averageResponseDurationMs: 17_000 / 3,
     })
     assert.deepEqual(formatResponseUsageStatus(usage), [
       { text: "4 tok/s", tone: "error" },
-      { text: "first text latency: 425ms", tone: "muted" },
-      { text: "total: 5.7s", tone: "muted" },
+      { text: "latency: 425ms/5.7s", tone: "muted" },
     ])
   })
 
@@ -221,6 +224,9 @@ describe("resolveResponseUsageStatus", () => {
 
     assert.deepEqual(usage, {
       averageTokensPerSecond: 60 / 7,
+      averageGenerationTokensPerSecond: 60 / 7,
+      includesReasoning: false,
+      averageFirstActivityLatencyMs: undefined,
       averageFirstTextLatencyMs: undefined,
       averageResponseDurationMs: 3_500,
     })
@@ -253,7 +259,7 @@ describe("resolveResponseUsageStatus", () => {
     assert.equal(usage.averageTokensPerSecond, 5)
     assert.deepEqual(formatResponseUsageStatus(usage), [
       { text: "5 tok/s", tone: "error" },
-      { text: "total: 5.0s", tone: "muted" },
+      { text: "latency: 5.0s", tone: "muted" },
     ])
   })
 
@@ -289,8 +295,78 @@ describe("resolveResponseUsageStatus", () => {
     assert.ok(usage)
     assert.deepEqual(formatResponseUsageStatus(usage), [
       { text: "5 tok/s", tone: "error" },
-      { text: "first text latency: 650ms", tone: "muted" },
-      { text: "total: 5.0s", tone: "muted" },
+      { text: "latency: 650ms/5.0s", tone: "muted" },
     ])
+  })
+
+  it("reports thinking-inclusive throughput when the model emits reasoning", () => {
+    const usage = resolveResponseUsageStatus(
+      [
+        createAssistantMessage({
+          id: "msg_reasoning",
+          completedAfterMs: 60_000,
+          outputTokens: 300,
+          reasoningTokens: 600,
+        }),
+      ],
+      () => [
+        {
+          type: "reasoning",
+          time: {
+            start: RESPONSE_STARTED_AT,
+            end: RESPONSE_STARTED_AT + 4_000,
+          },
+        },
+        {
+          type: "text",
+          time: {
+            start: RESPONSE_STARTED_AT + 4_000,
+            end: RESPONSE_STARTED_AT + 10_000,
+          },
+        },
+      ],
+    )
+
+    assert.ok(usage)
+    assert.equal(usage.averageTokensPerSecond, 50)
+    assert.equal(usage.averageGenerationTokensPerSecond, 90)
+    assert.deepEqual(formatResponseUsageStatus(usage), [
+      { text: "50/90 tok/s", tone: "muted" },
+      { text: "latency: 0ms/4.0s/60.0s", tone: "muted" },
+    ])
+  })
+
+  it("shows one rate when thinking adds no measurable throughput", () => {
+    const usage = resolveResponseUsageStatus(
+      [
+        createAssistantMessage({
+          id: "msg_equal_rates",
+          completedAfterMs: 60_000,
+          outputTokens: 300,
+          reasoningTokens: 60,
+        }),
+      ],
+      () => [
+        {
+          type: "reasoning",
+          time: {
+            start: RESPONSE_STARTED_AT,
+            end: RESPONSE_STARTED_AT + 1_200,
+          },
+        },
+        {
+          type: "text",
+          time: {
+            start: RESPONSE_STARTED_AT + 4_000,
+            end: RESPONSE_STARTED_AT + 10_000,
+          },
+        },
+      ],
+    )
+
+    assert.ok(usage)
+    assert.equal(usage.averageTokensPerSecond, 50)
+    assert.equal(usage.averageGenerationTokensPerSecond, 50)
+    assert.equal(formatResponseUsageStatus(usage)[0]?.text, "50 tok/s")
   })
 })

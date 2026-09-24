@@ -1,3 +1,4 @@
+import type { CompletedAssistantMessage } from "../documents/completedAssistantMessage.ts"
 import { newCompletedAssistantMessage } from "../documents/completedAssistantMessage.ts"
 import type { MessageId } from "../valueObject/messageId.ts"
 import type { TimestampMs } from "../valueObject/timestampMs.ts"
@@ -8,11 +9,14 @@ import type { StatusBarTone } from "./tone.ts"
 const TOKEN_RATE_RESPONSE_WINDOW_SIZE = 3
 const TOKEN_RATE_ERROR_TPS = 20
 const TOKEN_RATE_WARNING_TPS = 40
-const FIRST_TEXT_LATENCY_ERROR_MS = 10_000
-const FIRST_TEXT_LATENCY_WARNING_MS = 3_000
+const LATENCY_ERROR_MS = 10_000
+const LATENCY_WARNING_MS = 3_000
 
 export type ResponseUsageStatus = {
   averageTokensPerSecond: number
+  averageGenerationTokensPerSecond: number
+  includesReasoning: boolean
+  averageFirstActivityLatencyMs?: number
   averageFirstTextLatencyMs?: number
   averageResponseDurationMs: number
 }
@@ -22,29 +26,59 @@ export type ResponseUsageSegment = {
   tone: StatusBarTone
 }
 
-type TextPartTiming = {
+type GenerationPartTiming = {
+  firstActivityStartMs: TimestampMs | undefined
   firstTextStartMs: TimestampMs | undefined
-  generatedMs: number
+  textMs: number
+  reasoningMs: number
 }
 
-function measureTextParts(rawParts: readonly unknown[]): TextPartTiming {
+function partTimeMs(
+  rawPart: Record<string, unknown>,
+): { startMs: TimestampMs; endMs: TimestampMs | undefined } | undefined {
+  if (!isRecord(rawPart.time)) return undefined
+  const startMs = newTimestampMs(rawPart.time.start)
+  if (startMs === undefined) return undefined
+  return { startMs, endMs: newTimestampMs(rawPart.time.end) }
+}
+
+function measureGenerationParts(
+  rawParts: readonly unknown[],
+): GenerationPartTiming {
+  let firstActivityStartMs: TimestampMs | undefined
   let firstTextStartMs: TimestampMs | undefined
-  let generatedMs = 0
+  let textMs = 0
+  let reasoningMs = 0
   for (const rawPart of rawParts) {
-    if (!isRecord(rawPart) || rawPart.type !== "text") continue
-    if (rawPart.synthetic === true || rawPart.ignored === true) continue
-    if (!isRecord(rawPart.time)) continue
-    const partStartMs = newTimestampMs(rawPart.time.start)
-    if (partStartMs === undefined) continue
-    if (firstTextStartMs === undefined || partStartMs < firstTextStartMs) {
-      firstTextStartMs = partStartMs
+    if (!isRecord(rawPart)) continue
+    const isText = rawPart.type === "text"
+    const isReasoning = rawPart.type === "reasoning"
+    if (!isText && !isReasoning) continue
+    if (isText && (rawPart.synthetic === true || rawPart.ignored === true)) {
+      continue
     }
-    const partEndMs = newTimestampMs(rawPart.time.end)
-    if (partEndMs !== undefined && partEndMs > partStartMs) {
-      generatedMs += partEndMs - partStartMs
+    const part = partTimeMs(rawPart)
+    if (part === undefined) continue
+    if (
+      firstActivityStartMs === undefined ||
+      part.startMs < firstActivityStartMs
+    ) {
+      firstActivityStartMs = part.startMs
+    }
+    if (!isText) {
+      if (part.endMs !== undefined && part.endMs > part.startMs) {
+        reasoningMs += part.endMs - part.startMs
+      }
+      continue
+    }
+    if (firstTextStartMs === undefined || part.startMs < firstTextStartMs) {
+      firstTextStartMs = part.startMs
+    }
+    if (part.endMs !== undefined && part.endMs > part.startMs) {
+      textMs += part.endMs - part.startMs
     }
   }
-  return { firstTextStartMs, generatedMs }
+  return { firstActivityStartMs, firstTextStartMs, textMs, reasoningMs }
 }
 
 function formatDuration(durationMs: number): string {
@@ -58,10 +92,32 @@ function resolveTokenRateTone(tokensPerSecond: number): StatusBarTone {
   return "muted"
 }
 
-function resolveFirstTextLatencyTone(latencyMs: number): StatusBarTone {
-  if (latencyMs > FIRST_TEXT_LATENCY_ERROR_MS) return "error"
-  if (latencyMs > FIRST_TEXT_LATENCY_WARNING_MS) return "warning"
+function resolveLatencyTone(latencyMs: number): StatusBarTone {
+  if (latencyMs > LATENCY_ERROR_MS) return "error"
+  if (latencyMs > LATENCY_WARNING_MS) return "warning"
   return "muted"
+}
+
+type ResponseTiming = {
+  message: CompletedAssistantMessage
+  lifetimeMs: number
+  timing: GenerationPartTiming
+}
+
+function averageLatencyMs(
+  responseTimings: readonly ResponseTiming[],
+  readStartMs: (timing: GenerationPartTiming) => TimestampMs | undefined,
+): number | undefined {
+  const latenciesMs = responseTimings.flatMap(({ message, timing }) => {
+    const startMs = readStartMs(timing)
+    if (startMs === undefined || startMs < message.createdAtMs) return []
+    return [startMs - message.createdAtMs]
+  })
+  if (latenciesMs.length === 0) return undefined
+  return (
+    latenciesMs.reduce((total, latencyMs) => total + latencyMs, 0) /
+    latenciesMs.length
+  )
 }
 
 export function resolveResponseUsageStatus(
@@ -80,42 +136,48 @@ export function resolveResponseUsageStatus(
   const responseTimings = recentMessages.map((message) => ({
     message,
     lifetimeMs: message.completedAtMs - message.createdAtMs,
-    timing: measureTextParts(readParts(message.id)),
+    timing: measureGenerationParts(readParts(message.id)),
   }))
 
   const totalOutputTokens = recentMessages.reduce(
     (total, message) => total + message.outputTokens,
     0,
   )
-  const totalGeneratedMs = responseTimings.reduce(
+  const totalReasoningTokens = recentMessages.reduce(
+    (total, message) => total + message.reasoningTokens,
+    0,
+  )
+  const totalTextMs = responseTimings.reduce(
     (total, response) =>
       total +
-      (response.timing.generatedMs > 0
-        ? response.timing.generatedMs
+      (response.timing.textMs > 0
+        ? response.timing.textMs
         : response.lifetimeMs),
     0,
   )
-  const tokenRateDurationSeconds = totalGeneratedMs / 1_000
-  const averageTokensPerSecond = totalOutputTokens / tokenRateDurationSeconds
-  if (!Number.isFinite(averageTokensPerSecond)) return undefined
-
-  const firstTextLatenciesMs = responseTimings.flatMap(
-    ({ message, timing: { firstTextStartMs } }) => {
-      if (firstTextStartMs === undefined) return []
-      const firstTextStartedAfterMessageCreation =
-        firstTextStartMs >= message.createdAtMs
-      if (!firstTextStartedAfterMessageCreation) return []
-      return [firstTextStartMs - message.createdAtMs]
-    },
-  )
-  const totalFirstTextLatencyMs = firstTextLatenciesMs.reduce(
-    (total, latencyMs) => total + latencyMs,
+  const totalReasoningMs = responseTimings.reduce(
+    (total, response) => total + response.timing.reasoningMs,
     0,
   )
-  const averageFirstTextLatencyMs =
-    firstTextLatenciesMs.length === 0
-      ? undefined
-      : totalFirstTextLatencyMs / firstTextLatenciesMs.length
+  const averageTokensPerSecond = totalOutputTokens / (totalTextMs / 1_000)
+  const averageGenerationTokensPerSecond =
+    (totalOutputTokens + totalReasoningTokens) /
+    ((totalTextMs + totalReasoningMs) / 1_000)
+  if (
+    !Number.isFinite(averageTokensPerSecond) ||
+    !Number.isFinite(averageGenerationTokensPerSecond)
+  ) {
+    return undefined
+  }
+
+  const averageFirstActivityLatencyMs = averageLatencyMs(
+    responseTimings,
+    (timing) => timing.firstActivityStartMs,
+  )
+  const averageFirstTextLatencyMs = averageLatencyMs(
+    responseTimings,
+    (timing) => timing.firstTextStartMs,
+  )
   const totalLifetimeMs = responseTimings.reduce(
     (total, response) => total + response.lifetimeMs,
     0,
@@ -124,6 +186,9 @@ export function resolveResponseUsageStatus(
 
   return {
     averageTokensPerSecond,
+    averageGenerationTokensPerSecond,
+    includesReasoning: totalReasoningTokens > 0,
+    averageFirstActivityLatencyMs,
     averageFirstTextLatencyMs,
     averageResponseDurationMs,
   }
@@ -132,21 +197,36 @@ export function resolveResponseUsageStatus(
 export function formatResponseUsageStatus(
   usage: ResponseUsageStatus,
 ): ResponseUsageSegment[] {
+  const textRate = Math.round(usage.averageTokensPerSecond)
+  const generationRate = Math.round(usage.averageGenerationTokensPerSecond)
+  const rateText =
+    usage.includesReasoning && generationRate !== textRate
+      ? `${textRate}/${generationRate} tok/s`
+      : `${textRate} tok/s`
   const segments: ResponseUsageSegment[] = [
     {
-      text: `${Math.round(usage.averageTokensPerSecond)} tok/s`,
+      text: rateText,
       tone: resolveTokenRateTone(usage.averageTokensPerSecond),
     },
   ]
-  if (usage.averageFirstTextLatencyMs !== undefined) {
-    segments.push({
-      text: `first text latency: ${formatDuration(usage.averageFirstTextLatencyMs)}`,
-      tone: resolveFirstTextLatencyTone(usage.averageFirstTextLatencyMs),
-    })
+  const activityMs = usage.averageFirstActivityLatencyMs
+  const textMs = usage.averageFirstTextLatencyMs
+  const waitsMs: number[] = []
+  if (activityMs !== undefined) waitsMs.push(activityMs)
+  if (
+    textMs !== undefined &&
+    formatDuration(textMs) !== formatDuration(activityMs ?? Number.NaN)
+  ) {
+    waitsMs.push(textMs)
   }
+  const values = [
+    ...waitsMs.map((waitMs) => formatDuration(waitMs)),
+    formatDuration(usage.averageResponseDurationMs),
+  ]
+  const healthMs = activityMs ?? textMs
   segments.push({
-    text: `total: ${formatDuration(usage.averageResponseDurationMs)}`,
-    tone: "muted",
+    text: `latency: ${values.join("/")}`,
+    tone: healthMs === undefined ? "muted" : resolveLatencyTone(healthMs),
   })
   return segments
 }

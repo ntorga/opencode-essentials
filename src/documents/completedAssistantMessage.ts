@@ -13,6 +13,7 @@ type CompletedAssistantMessageFields = {
   createdAtMs: TimestampMs
   completedAtMs: TimestampMs
   outputTokens: TokenCount
+  reasoningTokens: TokenCount
 }
 
 export type CompletedAssistantMessage = ParsedDocument<
@@ -37,17 +38,19 @@ export function newCompletedAssistantMessage(
   const createdAtMs = newTimestampMs(rawMessage.time.created)
   const completedAtMs = newTimestampMs(rawMessage.time.completed)
   const outputTokens = newTokenCount(rawMessage.tokens.output)
+  const reasoningTokens = newTokenCount(rawMessage.tokens.reasoning ?? 0)
   if (
     createdAtMs === undefined ||
     completedAtMs === undefined ||
     completedAtMs <= createdAtMs ||
     outputTokens === undefined ||
-    outputTokens === 0
+    outputTokens === 0 ||
+    reasoningTokens === undefined
   ) {
     return undefined
   }
 
   return newParsedDocument<CompletedAssistantMessageFields, "assistantMessage">(
-    { id, createdAtMs, completedAtMs, outputTokens },
+    { id, createdAtMs, completedAtMs, outputTokens, reasoningTokens },
   )
 }
