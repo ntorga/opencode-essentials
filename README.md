@@ -52,6 +52,28 @@ bash commands.
   against the generated permission rules. Use it so a rule that rejects
   `git push` still holds when the agent wraps the call in a bash script.
 
+## The status bar
+
+One themed footer row, shared by the clock and the metrics:
+
+```
+idle 2m 38s | since 9/24/26, 4:03 PM · 62/118 tok/s · latency: 0.4s/11.3s/48.6s
+```
+
+- `idle 2m 38s | since ...` — how long the session has waited for your input,
+  and when the model stopped answering. It turns yellow at half of the
+  auto-compactor timeout and red at 80 percent.
+- `62/118 tok/s` — output speed over total generation speed, including
+  thinking tokens. The gap between the numbers is the thinking share. On a
+  non-reasoning model you see one number. Yellow below 40, red below 20.
+- `latency: 0.4s/11.3s/48.6s` — time until the model started answering,
+  until the first visible text, and until the turn finished. Thinking counts
+  in the first-text wait. The color follows the start value: yellow above 3s,
+  red above 10s. Only the numbers carry color.
+
+The full measurement rules live in
+[`src/README.md`](src/README.md#response-usage-status).
+
 ## Development
 
 Requires Node 24+, Bun 1.3+, and OpenCode 1.18.x for manual testing.
