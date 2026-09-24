@@ -2,6 +2,7 @@
 
 ```log
 0.3.0 - 2026/09/24
+feat: tighten the idle clock stamp
 docs: explain the status bar in the readme
 fix: rate active generation time and polish metric display
 docs: describe paired rates and the latency group

@@ -89,8 +89,20 @@ export function formatIdleDuration(elapsedMs: number): string {
   return `${seconds}s`
 }
 
-function formatIdleStartTimestamp(timestampMs: TimestampMs): string {
-  return new Date(timestampMs).toLocaleString(undefined, {
+function formatIdleStartTimestamp(
+  timestampMs: TimestampMs,
+  nowMs: number,
+): string {
+  const startedAt = new Date(timestampMs)
+  const today = new Date(nowMs)
+  const startedToday =
+    startedAt.getFullYear() === today.getFullYear() &&
+    startedAt.getMonth() === today.getMonth() &&
+    startedAt.getDate() === today.getDate()
+  if (startedToday) {
+    return startedAt.toLocaleTimeString(undefined, { timeStyle: "short" })
+  }
+  return startedAt.toLocaleString(undefined, {
     dateStyle: "short",
     timeStyle: "short",
   })
@@ -128,9 +140,9 @@ export function resolveIdleClockLine(
   const elapsedMs = nowMs - anchorMs
   if (elapsedMs < 0) return undefined
   const displayDuration = formatIdleDuration(elapsedMs)
-  const idleStart = formatIdleStartTimestamp(anchorMs)
+  const idleStart = formatIdleStartTimestamp(anchorMs, nowMs)
   return {
-    text: `idle ${displayDuration} | since ${idleStart}`,
+    text: `idle: ${displayDuration} | since ${idleStart}`,
     color: resolveIdleClockColor(elapsedMs, compactor),
   }
 }

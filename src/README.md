@@ -96,12 +96,14 @@ the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
 ### Idle Session Clock
 
 Shows an idle counter at the start of the shared status bar while the open
-session waits for your input, for example `idle 3m 12s · since 9/22/26,
-10:20 AM`. It is a TUI-only feature: it renders inside the OpenCode TUI from
-the host's synced state, so it has no server hooks.
+session waits for your input, for example `idle: 3m 12s | since 10:20 AM`.
+It is a TUI-only feature: it renders inside the OpenCode TUI from the host's
+synced state, so it has no server hooks.
 
 - The clock anchors on the completion of the newest real assistant answer —
   the moment the model stopped answering. It counts up from there.
+- The `since` stamp shows the local start time, and adds the date only when
+  the wait began before today.
 - The auto-compactor's own summary turn does not re-anchor the clock, so an
   automatic compaction does not reset your displayed wait to zero.
 - The line is hidden while the session is `busy` or `retry`, while the

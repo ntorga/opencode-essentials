@@ -158,7 +158,7 @@ describe("resolveIdleClockLine", () => {
     )
     assert.ok(line)
     assert.equal(line.color, "muted")
-    assert.match(line.text, /^idle \d+s \| since /)
+    assert.match(line.text, /^idle: \d+s \| since /)
   })
 
   it("hides when nothing has completed", () => {
@@ -169,7 +169,7 @@ describe("resolveIdleClockLine", () => {
     )
   })
 
-  it("shows elapsed time and the local time when idle began", () => {
+  it("shows the local start time alone when idle began today", () => {
     const line = resolveIdleClockLine(
       "idle",
       settled(),
@@ -177,12 +177,28 @@ describe("resolveIdleClockLine", () => {
       compactor,
     )
     assert.deepEqual(line, {
-      text: `idle 5m 19s | since ${new Date(T0 + 20).toLocaleString(undefined, {
+      text: `idle: 5m 19s | since ${new Date(T0 + 20).toLocaleTimeString(
+        undefined,
+        { timeStyle: "short" },
+      )}`,
+      color: "warning",
+    })
+  })
+
+  it("adds the date when idle began on an earlier day", () => {
+    const line = resolveIdleClockLine(
+      "idle",
+      settled(),
+      T0 + 26 * 60 * 60_000,
+      compactor,
+    )
+    assert.equal(
+      line?.text,
+      `idle: 25h 59m | since ${new Date(T0 + 20).toLocaleString(undefined, {
         dateStyle: "short",
         timeStyle: "short",
       })}`,
-      color: "warning",
-    })
+    )
   })
 
   it("turns red at eighty percent of the compactor timeout", () => {

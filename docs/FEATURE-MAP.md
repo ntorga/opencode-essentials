@@ -54,7 +54,8 @@ runtime.
 
 Shows how long the open session has been idle — the time since the model
 stopped answering and left the floor to the user — at the start of the shared
-status bar. It includes the local idle start date and time. It turns yellow at
+status bar. It stamps the local idle start time, adding the date for waits
+that began before today. It turns yellow at
 half of the idle auto-compactor timeout and red at 80 percent. It is feature 3
 of the essentials suite and is toggled at runtime from the same `/essentials`
 dialog. It is a TUI-only feature: it has no server hooks.
@@ -69,8 +70,9 @@ dialog. It is a TUI-only feature: it has no server hooks.
    configured timeout and display color.
 4. `src/statusBar/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
-   the auto-compactor's summary turn — and formats elapsed time, local start
-   date and time, and timer color. The host only tracks busy and retry states,
+   the auto-compactor's summary turn — and formats elapsed time, the local
+   start stamp (date included only for earlier-day waits), and timer color.
+   The host only tracks busy and retry states,
    so a missing status is idle; the line hides only while busy or retrying.
 5. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
    compactor flag, and the timeout override from the shared state file each

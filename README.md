@@ -57,11 +57,12 @@ bash commands.
 One themed footer row, shared by the clock and the metrics:
 
 ```
-idle 2m 38s | since 9/24/26, 4:03 PM · 62/118 tok/s · latency: 0.4s/11.3s/48.6s
+idle: 2m 38s | since 4:03 PM · 62/118 tok/s · latency: 0.4s/11.3s/48.6s
 ```
 
-- `idle 2m 38s | since ...` — how long the session has waited for your input,
-  and when the model stopped answering. It turns yellow at half of the
+- `idle: 2m 38s | since ...` — how long the session has waited for your
+  input, and when the model stopped answering. The date joins the stamp only
+  when the wait began before today. It turns yellow at half of the
   auto-compactor timeout and red at 80 percent.
 - `62/118 tok/s` — output speed over total generation speed, including
   thinking tokens. The gap between the numbers is the thinking share. On a
