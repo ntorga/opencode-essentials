@@ -117,26 +117,102 @@ starts and finishes.
 
 ---
 
-## Native Skills (planned)
+## Permission Assistant and Desktop Notifications
 
-Promotes the `.agents/skills` playbooks to native OpenCode skills. Not yet implemented; the code path is not traceable. Roadmap item 3 in `TODO.md`.
+Checks pending Bash permission requests with OpenRouter's Decisions API. Jev is
+the default. The permission assistant reads OpenRouter credentials from
+OpenCode's auth store, with an environment-variable fallback. `/essentials`
+can change the classifier model while OpenCode is running. A safe probability
+of 0.80 or higher replies once. Other results keep the prompt open and trigger
+a desktop notification when TUI notifications are enabled.
+
+**Flow:**
+
+1. `tui.json` — loads the TUI permission assistant.
+2. `src/permission-assistant.tsx` — listens for `permission.asked`, checks the
+   feature toggle, validates the request, and reads the selected model.
+3. `src/openRouterAuth.ts` — reads the OpenRouter API key from OpenCode's auth
+   store and falls back to `OPENROUTER_API_KEY`.
+4. `src/valueObject/permissionRequest.ts`, `src/valueObject/permissionName.ts`,
+   `src/valueObject/permissionRequestId.ts`, `src/valueObject/openRouterApiKey.ts`,
+   and `src/valueObject/openRouterModelId.ts` — validate request fields,
+   credentials, model IDs, and reply identifiers.
+5. `src/permissionDecision.ts` — sends Bash patterns to the Decisions API and
+   validates the returned safe probability.
+6. `src/notificationText.ts` — places request text after the end-of-options
+   marker and escapes markup characters before passing it as the notification
+   body.
+7. `src/permission-assistant.tsx` — replies `once` at 0.80 or higher.
+   Otherwise it keeps the prompt open and uses Linux `notify-send` or the TUI
+   attention API when notifications are enabled. The Linux action can reply
+   `once`.
+8. `src/features/permission-assistant.ts`, `src/features/registry.ts`,
+   `src/tui.ts`, `src/state.ts`, and
+   `src/valueObject/essentialsConfig.ts` — expose the feature toggle and
+   persist a model selected in `/essentials`.
+9. `src/openRouterAuth.test.ts`, `src/permissionDecision.test.ts`,
+   `src/valueObject/permissionRequest.test.ts`,
+   `src/valueObject/openRouterApiKey.test.ts`, and
+   `src/valueObject/openRouterModelId.test.ts` — test credential and model
+   validation. `src/notificationText.test.ts` checks notification text safety.
+
+OpenCode v1 creates the pending request before the TUI receives it. The
+permission prompt may appear while Jev classifies it. The notification button
+uses the freedesktop.org action protocol; a notification server may ignore
+actions.
 
 ---
 
-## KDE Permission Notifications (planned)
+## Response Usage Status
 
-Shows KDE notifications when opencode requests a permission, with an allow action on the banner. Not yet implemented; the code path is not traceable. Roadmap item 4 in `TODO.md`.
+Shows output tokens, output tokens per second, first-visible-text timing,
+response duration, and cost for the newest completed assistant response. The
+footer uses the active theme's panel background.
+
+**Flow:**
+
+1. `tui.json` — loads `src/usage-status.tsx` as a TUI plugin.
+2. `src/usage-status.tsx` — checks the feature toggle and registers a themed
+   footer component for the active session.
+3. `src/valueObject/sessionId.ts` — validates the active session ID before the
+   TUI reads its messages and parts.
+4. `src/usage-status.tsx` and `src/usageStatus.ts` — read the validated
+   session's messages and parts, then select and format the newest valid
+   completed assistant response without a redundant context count.
+5. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`,
+   `src/valueObject/timestampMs.ts`, and `src/valueObject/costUsd.ts` —
+   validate response metrics before calculations.
+6. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
+   and `src/state.ts` — expose and persist the `/essentials` feature toggle.
+7. `src/usageStatus.test.ts` — tests response selection, timing, and displayed
+   metrics.
 
 ---
 
-## /grill (planned)
+## Embedded Skills and Slash Commands
 
-A lighter review command with a question cap. Not yet implemented; the code path is not traceable. Roadmap item 5 in `TODO.md`.
+Adds native skills and matching commands for `/grill`, `/humanizer`,
+`/web-search`, and `/agent-browser`. Each command invokes the skill with the
+user's arguments. The grill asks at most eight questions, with no more than
+three in one round.
+
+**Flow:**
+
+1. `.opencode/skills/grill/SKILL.md` — defines the capped plan interview.
+2. `.opencode/commands/grill.md` — exposes the skill as `/grill`.
+3. `.opencode/skills/humanizer/SKILL.md` — defines prose rewriting rules.
+4. `.opencode/commands/humanizer.md` — exposes the skill as `/humanizer`.
+5. `.opencode/skills/web-search/SKILL.md` — defines search, fetch, and citation
+   rules.
+6. `.opencode/commands/web-search.md` — exposes the skill as `/web-search`.
+7. `.opencode/skills/agent-browser/SKILL.md` — defines private browser
+   verification.
+8. `.opencode/commands/agent-browser.md` — exposes the skill as `/agent-browser`.
 
 ---
 
 ## /review (planned)
 
-A review command with the dispatch envelope, rule and skill curation, LOC sizing, and a focus lens. Not yet implemented; the code path is not traceable. Roadmap item 6 in `TODO.md`.
+A review command with the dispatch envelope, rule and skill curation, LOC sizing, and a focus lens. Not yet implemented; the code path is not traceable.
 
 ---

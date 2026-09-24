@@ -1,17 +1,21 @@
 # opencode-essentials
 
-One plugin package, three entry points, several features. The server entry
-runs the features. The TUI companion gives the user a command to switch
-everything off at once, enable or disable each feature at runtime, and
-tune a feature's idle timeout or token ceiling. The TUI idle clock shows,
-on screen, how long the open session has waited for your input.
+One plugin package, five entry points, several features. The server entry
+runs server features. The TUI entries manage features, handle permission
+requests, show the idle clock, and display response usage. The feature dialog
+lets the user switch all features off, change feature states, and tune idle
+timeouts, token ceilings, and the classifier model. The idle clock shows how
+long the open session has waited for input.
 
 ```
 src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
   idle-clock.tsx default export { id, tui }    — idle session clock line (TUI-side)
+  permission-assistant.tsx TUI pending-permission listener and notifier
+  usage-status.tsx latest assistant response metrics in the TUI footer
   idleWaiting.ts clock logic                   — anchor, elapsed, and format
+  usageStatus.ts response metrics              — output, first text, duration, cost
   contextCeiling.ts ceiling logic              — turn usage, model window, clamp
   state.ts     shared state file protocol      — written by tui, read by server
   valueObject/ one validated type per file     — the input trust boundary
@@ -108,6 +112,69 @@ state, so it has no server hooks.
   unreadable state file hides the line rather than resurrecting a clock the
   user may have switched off.
 
+### Permission Assistant
+
+The Permission Assistant listens for pending permission requests in the TUI.
+OpenCode evaluates `opencode.json` rules first. Only requests that still need
+an answer reach this flow.
+
+- Bash requests go to OpenRouter's Decisions API. The default model is
+  `typesafe/jev-1.13`. Essentials reads the OpenRouter key from OpenCode's
+  `auth.json` file. `OPENROUTER_API_KEY` is an optional fallback.
+- Essentials reads the model's safe probability. A value of `0.80` or higher
+  replies `once` through the OpenCode client. This reply does not save a
+  permission rule.
+- A lower score, a missing credential, an invalid response, or a network error
+  leaves the normal permission prompt open.
+- OpenCode v1 publishes a pending request before the TUI sees it. The prompt
+  can appear briefly while Jev classifies the request.
+- On Linux, `notify-send` creates a freedesktop.org notification with an
+  **Allow once** action. KDE, GNOME, Budgie, and other notification servers
+  can show the action when they support notification actions. The prompt stays
+  available if the notification server ignores the action.
+- A desktop action replies `once`. A user reply in the TUI cancels the
+  classifier request and closes the notification.
+- Only Bash requests go to OpenRouter. Essentials sends permission patterns.
+  It does not send the session transcript or project path.
+- OpenRouter's [Jev guide](https://openrouter.ai/docs/guides/community/jev)
+  describes the model and Decisions API. Its [permission prompt
+  example](https://openrouter.ai/docs/cookbook/coding-agents/auto-approve-permission-prompts-with-jev)
+  shows how to use the API.
+- Linux notifications use the action list in the
+  [freedesktop.org notification protocol](https://specifications.freedesktop.org/notification/latest/protocol.html).
+- The freedesktop notification body accepts XML markup. Essentials escapes
+  command text before it displays the text. See the
+  [markup rules](https://specifications.freedesktop.org/notification/latest/markup.html).
+- The **Permission Assistant** row in `/essentials` controls classification
+  and permission notifications. Disabling it leaves OpenCode's normal prompt
+  unchanged.
+- The **Permission Assistant model** row changes the model without a restart.
+  Enter a `provider/model` ID. The row can restore Jev as the default.
+
+The model must support OpenRouter's Decisions API. Jev is a structured
+decision model. It is not a regular chat model.
+
+### Response Usage Status
+
+The Response Usage Status line appears on a themed panel at the bottom of the
+TUI after a completed assistant response. It shows output tokens, output
+tokens per second, time to first visible text, response duration, and cost.
+
+- Tokens per second uses output tokens divided by the full response time.
+- First-text timing starts when OpenCode creates the assistant message. It
+  ends when the first non-synthetic text part starts. It does not include the
+  time from user submission to assistant-message creation.
+- The line omits first-text timing when that time is missing or invalid.
+- The **Response Usage Status** row in `/essentials` controls the line.
+
+## Skills and slash commands
+
+The project provides four native OpenCode skills in `.opencode/skills/`:
+`grill`, `humanizer`, `web-search`, and `agent-browser`. Matching files in
+`.opencode/commands/` expose `/grill`, `/humanizer`, `/web-search`, and
+`/agent-browser`. The grill asks at most eight questions total, with no more
+than three in one round. Restart OpenCode after changing a skill or command.
+
 ## Installation
 
 Register the server entry in `opencode.json`:
@@ -137,6 +204,8 @@ Register the TUI entries in `tui.json`:
 {
   "plugin": [
     "./src/tui.ts",
+    "./src/permission-assistant.tsx",
+    "./src/usage-status.tsx",
     [
       "./src/idle-clock.tsx",
       {
@@ -153,14 +222,22 @@ Paths resolve relative to the declaring config file. The two hosts read
 separate config files: the server host loads `opencode.json` and the TUI
 host loads `tui.json`. Restart OpenCode after changing either file.
 
+The permission assistant reads the `openrouter` API key from the OpenCode
+auth store in `$XDG_DATA_HOME/opencode/auth.json` (default
+`~/.local/share/opencode/auth.json`). `OPENROUTER_API_KEY` is an optional
+fallback. OpenRouter receives Bash permission patterns for classification.
+Essentials does not send the session transcript or project path.
+
 Toggling does not need a restart. Type `/essentials` in the prompt, or
 open the command palette (`ctrl+p` by default) and run **Toggle Essentials
-Features**. The dialog offers four kinds of row:
+Features**. The dialog offers five kinds of row:
 
 - **All features** — the master switch. Turning it off stops every feature
   at once and keeps each per-feature choice untouched.
 - **One row per feature** — enable or disable that feature. A feature
   stays off while the master switch is off.
+- **Permission Assistant model** — enter a custom OpenRouter Decisions model
+  ID or restore Jev as the default.
 - **One row per adjustable timeout** — opens a submenu of preset idle
   timeouts plus a custom value in minutes.
 - **One row per adjustable token ceiling** — opens a submenu of preset
@@ -181,6 +258,13 @@ Server entry options — read once at startup:
 |--------|------|---------|
 | `features.idle-auto-compactor.idleTimeoutMs` | number | `1800000` (30 min) |
 | `features.token-ceiling-compactor.ceilingTokens` | number | `384000` |
+
+The classifier model is stored at
+`settings.permission-assistant.model` in `essentials.json`. The default is
+`typesafe/jev-1.13`. Change it in `/essentials` by entering a `provider/model`
+ID. Only Bash permission patterns that remain at `ask` are sent to the
+configured model. The request has an eight-second timeout. A missing
+credential, network error, or invalid response leaves the prompt open.
 
 `ceilingTokens` is the context size, in tokens, at which the ceiling
 compactor runs. A missing value falls back to the default silently. A
@@ -207,10 +291,16 @@ State file (`$XDG_DATA_HOME/opencode/essentials.json`), current shape:
 {
   "version": 1,
   "enabled": true,
-  "features": { "idle-auto-compactor": false, "idle-clock": true },
+  "features": {
+    "idle-auto-compactor": false,
+    "idle-clock": true,
+    "permission-assistant": true,
+    "usage-status": true
+  },
   "settings": {
     "idle-auto-compactor": { "idleTimeoutMs": 1800000 },
-    "token-ceiling-compactor": { "ceilingTokens": 384000 }
+    "token-ceiling-compactor": { "ceilingTokens": 384000 },
+    "permission-assistant": { "model": "typesafe/jev-1.13" }
   }
 }
 ```
@@ -246,16 +336,15 @@ The TUI shows an error toast when a write is refused.
 
 ## Requirements
 
-- OpenCode 1.18.x, verified against 1.18.29. The server half uses the
-  the `session.status` and `chat.message` events, the `session.messages`
-  read, the `session.summarize` API, and the `provider.list` endpoint. The
-  TUI half
-  uses the TUI plugin surface (`keymap.registerLayer`, `ui.dialog`,
-  `ui.DialogSelect`, `ui.DialogPrompt`, `ui.toast`, `slots.register`).
-- No dependencies to install. The entries import types, Node built-ins,
-  and host-provided runtime modules only: `solid-js` and `@opentui/*` for
-  the clock's view, which the OpenCode TUI registers for plugins at load.
-  No `package.json` needed in `.opencode/`.
+- OpenCode 1.18.x, verified against 1.18.30. The server uses session events,
+  message reads, session summaries, and provider metadata. The TUI uses
+  `api.event`, `api.client.permission.reply`, `api.attention`, and
+  `slots.register`.
+- The entries use Node built-ins and TUI host modules. OpenCode provides
+  `solid-js` and `@opentui/*` at runtime. On Linux, `notify-send` provides the
+  desktop action when installed. The TUI attention API provides a fallback.
+- The new TUI entries add no npm packages. `.opencode/package.json` provides
+  the existing wrapped-shell guard dependencies.
 
 ## Tests
 
@@ -292,3 +381,16 @@ npm run typecheck # tsc --noEmit
 9. Type `/essentials` and disable **Idle Session Clock**: the line
    disappears within a second. Re-enable: it returns with the true elapsed
    time.
+10. Run `opencode auth login` and set `permission.bash` to `ask` in
+    `opencode.json`. Ask the agent to run a safe Bash command. A Jev
+    probability of at least `0.80` replies once. A lower or invalid result
+    leaves the prompt open.
+11. Type `/essentials`, open **Permission Assistant model**, choose a custom
+    model, and enter its OpenRouter `provider/model` ID. Open the row again
+    and restore the Jev default.
+12. Trigger a pending permission with a low Jev probability. Check that the
+    desktop notification offers **Allow once**. Dismissing it must leave the
+    OpenCode prompt open.
+13. Complete an assistant response. Check that the themed footer shows output
+    tokens, output speed, first-text timing, response duration, and cost.
+    Disable **Response Usage Status** to hide the line.

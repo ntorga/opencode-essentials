@@ -7,11 +7,11 @@
 > The author nitpicked the result, and every review finding is fixed, but do
 > not expect the care of hand-written code.
 
-A suite of plugins for [OpenCode](https://opencode.ai), version 1. One
-installable package has three entry points: a server plugin that runs the
-features, a TUI companion that toggles them at runtime, and a TUI idle clock
-that shows how long the open session has waited for your input. The project
-also provides an auto-loaded `.opencode` plugin for wrapped bash commands.
+A suite of plugins for [OpenCode](https://opencode.ai), version 1. The package
+has one server entry and four TUI entries. The server runs the features. The
+TUI entries manage feature switches, show the idle clock, assist with
+permissions, and display response usage. The project also provides an
+auto-loaded `.opencode` plugin for wrapped bash commands.
 
 ## Features
 
@@ -26,12 +26,24 @@ also provides an auto-loaded `.opencode` plugin for wrapped bash commands.
   open session has been idle since the model stopped answering. It shows the
   idle start date and changes color as the compactor timeout approaches.
   Hides while the model works; toggled from `/essentials`.
+- **Permission Assistant** (implemented): sends pending Bash permission
+  requests to OpenRouter's Decisions API. Jev is the default model. A safe
+  probability of `0.80` or higher replies once. Other results keep the
+  OpenCode prompt open. It reuses credentials from `opencode auth login`.
+- **Permission Notifications** (implemented): uses the freedesktop.org
+  notification service on Linux. The notification offers an **Allow once**
+  action when the notification server supports actions. OpenCode keeps its
+  normal prompt as a fallback.
+- **Response Usage Status** (implemented): shows output tokens, output speed,
+  time to first visible text, response duration, and cost on a themed footer
+  panel. Toggle it from `/essentials`.
+- **Embedded Skills and Commands** (implemented): adds `/grill`,
+  `/humanizer`, `/web-search`, and `/agent-browser` with matching native
+  OpenCode skills.
 - **Exec wrapper guard** (implemented): checks commands hidden by natural
   bash wrappers against the generated permission rules.
 - **Sub-agent timestamps** (implemented in `tmp/opencode-src`): task rows show
   when each sub-agent started and finished.
-- **KDE permission notifications** (planned): notifies on permission
-  requests, with an allow action.
 
 ## Development
 
