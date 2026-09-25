@@ -1,6 +1,14 @@
 # Changelog
 
 ```log
+0.5.0 - 2026/09/25
+chore: bump package version to 0.5.0
+docs: document the health verdict and the reasoning loop guard
+feat: cancel reasoning spirals with Jev's verdict
+feat: grade provider health in the status line
+feat: show the idle start stamp only past thirty minutes
+refactor: share the rejected host id warning across features
+
 0.4.0 - 2026/09/24
 chore: bump package version to 0.4.0
 docs: frame features by problem and document the permission audit
