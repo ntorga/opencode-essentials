@@ -103,7 +103,7 @@ describe("resolveIdleClockLine", () => {
     )
     assert.ok(line)
     assert.equal(line.color, "muted")
-    assert.match(line.text, /^idle: \d+s \| since /)
+    assert.match(line.text, /^idle: \d+s$/)
   })
 
   it("hides when nothing has completed", () => {
@@ -118,16 +118,33 @@ describe("resolveIdleClockLine", () => {
     const line = resolveIdleClockLine(
       "idle",
       settled(),
-      T0 + 320_000,
+      T0 + 2_100_020,
       compactor,
     )
     assert.deepEqual(line, {
-      text: `idle: 5m 19s | since ${new Date(T0 + 20).toLocaleTimeString(
+      text: `idle: 35m 00s | since ${new Date(T0 + 20).toLocaleTimeString(
         undefined,
         { timeStyle: "short" },
       )}`,
-      color: "warning",
+      color: "error",
     })
+  })
+
+  it("keeps the start time hidden until the half-hour mark", () => {
+    const before = resolveIdleClockLine(
+      "idle",
+      settled(),
+      T0 + 320_000,
+      compactor,
+    )
+    assert.equal(before?.text, "idle: 5m 19s")
+    const at = resolveIdleClockLine(
+      "idle",
+      settled(),
+      T0 + 30 * 60_000 + 20,
+      compactor,
+    )
+    assert.match(at?.text ?? "", /^idle: 30m 00s \| since /)
   })
 
   it("adds the date when idle began on an earlier day", () => {
@@ -148,7 +165,7 @@ describe("resolveIdleClockLine", () => {
 
   it("pads the first minute boundary in the elapsed stamp", () => {
     const line = resolveIdleClockLine("idle", settled(), T0 + 60_020, compactor)
-    assert.match(line?.text ?? "", /^idle: 1m 00s \| since /)
+    assert.match(line?.text ?? "", /^idle: 1m 00s$/)
   })
 
   it("does not re-anchor on the compactor's summary turn", () => {
@@ -157,7 +174,7 @@ describe("resolveIdleClockLine", () => {
       assistant(1_800_000, 1_800_050, true),
     )
     const line = resolveIdleClockLine("idle", messages, T0 + 100_000, compactor)
-    assert.match(line?.text ?? "", /^idle: 1m 39s \| since /)
+    assert.match(line?.text ?? "", /^idle: 1m 39s$/)
   })
 
   it("turns red at eighty percent of the compactor timeout", () => {

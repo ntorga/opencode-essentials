@@ -23,6 +23,7 @@ export type IdleClockCompactor = {
 
 const YELLOW_AFTER_IDLE_FRACTION = 0.5
 const RED_AFTER_IDLE_FRACTION = 0.8
+const SINCE_STAMP_AFTER_IDLE_MS = 30 * 60_000
 
 function asRole(rawValue: unknown): "user" | "assistant" | undefined {
   if (rawValue === "user" || rawValue === "assistant") return rawValue
@@ -140,6 +141,12 @@ export function resolveIdleClockLine(
   const elapsedMs = nowMs - anchorMs
   if (elapsedMs < 0) return undefined
   const displayDuration = formatIdleDuration(elapsedMs)
+  if (elapsedMs < SINCE_STAMP_AFTER_IDLE_MS) {
+    return {
+      text: `idle: ${displayDuration}`,
+      color: resolveIdleClockColor(elapsedMs, compactor),
+    }
+  }
   const idleStart = formatIdleStartTimestamp(anchorMs, nowMs)
   return {
     text: `idle: ${displayDuration} | since ${idleStart}`,
