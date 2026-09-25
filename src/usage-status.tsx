@@ -18,8 +18,8 @@ import type { IdleClockLine } from "./statusBar/idleWaiting.ts"
 import { resolveStatusBarTextColor } from "./statusBar/tone.ts"
 import type { ResponseUsageSegment } from "./statusBar/usageStatus.ts"
 import {
-  formatResponseUsageStatus,
-  resolveResponseUsageStatus,
+  formatResponseStatus,
+  resolveResponseStatus,
 } from "./statusBar/usageStatus.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import type { SessionId } from "./valueObject/sessionId.ts"
@@ -42,17 +42,19 @@ function resolveResponseUsageLine(
   api: TuiPluginApi,
   config: EssentialsConfig,
   sessionId: SessionId,
+  nowMs: number,
 ): ResponseUsageSegment[] | undefined {
   if (!isFeatureEnabled(config, usageStatusFeature.id)) {
     return undefined
   }
 
-  const usage = resolveResponseUsageStatus(
+  const status = resolveResponseStatus(
     api.state.session.messages(sessionId),
     (messageId) => api.state.part(messageId),
+    nowMs,
   )
-  if (!usage) return undefined
-  return formatResponseUsageStatus(usage)
+  if (!status) return undefined
+  return formatResponseStatus(status)
 }
 
 function resolveStatusBarLines(
@@ -69,7 +71,7 @@ function resolveStatusBarLines(
     nowMs,
     defaultIdleTimeoutMs,
   )
-  const responseUsage = resolveResponseUsageLine(api, config, sessionId)
+  const responseUsage = resolveResponseUsageLine(api, config, sessionId, nowMs)
   if (!idleClock && !responseUsage) return undefined
   return { idleClock, responseUsage }
 }
@@ -154,7 +156,7 @@ function StatusBarView(props: {
                 <For each={segments()}>
                   {(segment: ResponseUsageSegment, index: () => number) => (
                     <>
-                      {index() > 0 ? " · " : ""}
+                      {index() > 0 ? (segment.separator ?? " · ") : ""}
                       {segment.prefix ?? ""}
                       <span
                         style={{

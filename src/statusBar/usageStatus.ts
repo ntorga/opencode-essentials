@@ -6,26 +6,34 @@ import { newTimestampMs } from "../valueObject/timestampMs.ts"
 import { isRecord } from "../valueObject/util.ts"
 import type { StatusBarTone } from "./tone.ts"
 
-const TOKEN_RATE_RESPONSE_WINDOW_SIZE = 3
 const TOKEN_RATE_ERROR_TPS = 20
 const TOKEN_RATE_WARNING_TPS = 40
 const LATENCY_ERROR_MS = 10_000
 const LATENCY_WARNING_MS = 3_000
+const RESPONSE_WINDOW_MS = 5 * 60_000
+const RESPONSE_WINDOW_SIZE = 18
+const HEALTH_MIN_RESPONSES = 3
+const HEALTH_FLIP_SHARE = 1 / 3
 
-export type ResponseUsageStatus = {
-  averageTokensPerSecond: number
-  averageGenerationTokensPerSecond: number
-  includesReasoning: boolean
-  averageFirstActivityLatencyMs?: number
-  averageFirstTextLatencyMs?: number
-  averageResponseDurationMs: number
-}
+export type ResponseHealthLevel = "healthy" | "degraded" | "underperforming"
 
 export type ResponseUsageSegment = {
   value: string
   tone: StatusBarTone
   prefix?: string
   suffix?: string
+  // Glue drawn before the segment when another segment precedes it. The
+  // renderer falls back to its standard join when a segment stays silent.
+  separator?: string
+}
+
+export type ResponseStatus = {
+  healthLevel: ResponseHealthLevel | undefined
+  averageTokensPerSecond: number
+  averageGenerationTokensPerSecond: number
+  includesReasoning: boolean
+  averageFirstActivityLatencyMs: number | undefined
+  averageFirstTextLatencyMs: number | undefined
 }
 
 type GenerationPartTiming = {
@@ -33,6 +41,8 @@ type GenerationPartTiming = {
   firstTextStartMs: TimestampMs | undefined
   activeMs: number
 }
+
+type ResponseGrade = "good" | "troubled" | "poor"
 
 function partTimeMs(
   rawPart: Record<string, unknown>,
@@ -150,18 +160,46 @@ type ResponseTiming = {
   timing: GenerationPartTiming
 }
 
+function latencySinceMessageStart(
+  message: CompletedAssistantMessage,
+  startMs: TimestampMs | undefined,
+): number | undefined {
+  if (
+    startMs === undefined ||
+    startMs < message.createdAtMs ||
+    startMs > message.completedAtMs
+  ) {
+    return undefined
+  }
+  return startMs - message.createdAtMs
+}
+
+// A response whose parts yield no positive measured window leaves only the
+// message lifetime to divide the tokens by.
+function responseActiveMs(response: ResponseTiming): number {
+  return response.timing.activeMs > 0
+    ? response.timing.activeMs
+    : response.lifetimeMs
+}
+
+function measureResponseTiming(
+  message: CompletedAssistantMessage,
+  readParts: (messageId: MessageId) => readonly unknown[],
+): ResponseTiming {
+  return {
+    message,
+    lifetimeMs: message.completedAtMs - message.createdAtMs,
+    timing: measureGenerationParts(readParts(message.id)),
+  }
+}
+
 function averageLatencyMs(
   responseTimings: readonly ResponseTiming[],
   readStartMs: (timing: GenerationPartTiming) => TimestampMs | undefined,
 ): number | undefined {
   const latenciesMs = responseTimings.flatMap(({ message, timing }) => {
-    const startMs = readStartMs(timing)
-    const startedInsideMessageLifetime =
-      startMs !== undefined &&
-      startMs >= message.createdAtMs &&
-      startMs <= message.completedAtMs
-    if (!startedInsideMessageLifetime) return []
-    return [startMs - message.createdAtMs]
+    const latencyMs = latencySinceMessageStart(message, readStartMs(timing))
+    return latencyMs === undefined ? [] : [latencyMs]
   })
   if (latenciesMs.length === 0) return undefined
   return (
@@ -170,39 +208,72 @@ function averageLatencyMs(
   )
 }
 
-export function resolveResponseUsageStatus(
+function windowResponseTimings(
   rawMessages: readonly unknown[],
   readParts: (messageId: MessageId) => readonly unknown[],
-): ResponseUsageStatus | undefined {
-  const recentMessages = rawMessages
+  nowMs: number,
+): ResponseTiming[] {
+  return rawMessages
     .flatMap((rawMessage) => {
       const message = newCompletedAssistantMessage(rawMessage)
       return message === undefined ? [] : [message]
     })
     .toSorted((first, second) => second.completedAtMs - first.completedAtMs)
-    .slice(0, TOKEN_RATE_RESPONSE_WINDOW_SIZE)
-  if (recentMessages.length === 0) return undefined
+    .filter((message) => message.completedAtMs >= nowMs - RESPONSE_WINDOW_MS)
+    .slice(0, RESPONSE_WINDOW_SIZE)
+    .map((message) => measureResponseTiming(message, readParts))
+}
 
-  const responseTimings = recentMessages.map((message) => ({
-    message,
-    lifetimeMs: message.completedAtMs - message.createdAtMs,
-    timing: measureGenerationParts(readParts(message.id)),
-  }))
+function gradeResponseTiming(response: ResponseTiming): ResponseGrade {
+  const startLatencyMs = latencySinceMessageStart(
+    response.message,
+    response.timing.firstActivityStartMs,
+  )
+  const tones: StatusBarTone[] = [
+    resolveTokenRateTone(
+      response.message.outputTokens / (responseActiveMs(response) / 1_000),
+    ),
+  ]
+  if (startLatencyMs !== undefined)
+    tones.push(resolveLatencyTone(startLatencyMs))
+  if (tones.includes("error")) return "poor"
+  if (tones.includes("warning")) return "troubled"
+  return "good"
+}
 
-  const totalOutputTokens = recentMessages.reduce(
-    (total, message) => total + message.outputTokens,
+// A verdict needs a streak to read: fewer than HEALTH_MIN_RESPONSES
+// completed responses in the window say nothing about the provider's habit.
+function resolveHealthLevel(
+  grades: readonly ResponseGrade[],
+): ResponseHealthLevel | undefined {
+  if (grades.length < HEALTH_MIN_RESPONSES) return undefined
+  const troubledCount = grades.filter(
+    (grade) => grade === "troubled" || grade === "poor",
+  ).length
+  const poorCount = grades.filter((grade) => grade === "poor").length
+  if (poorCount / grades.length >= HEALTH_FLIP_SHARE) return "underperforming"
+  if (troubledCount / grades.length >= HEALTH_FLIP_SHARE) return "degraded"
+  return "healthy"
+}
+
+export function resolveResponseStatus(
+  rawMessages: readonly unknown[],
+  readParts: (messageId: MessageId) => readonly unknown[],
+  nowMs: number,
+): ResponseStatus | undefined {
+  const responseTimings = windowResponseTimings(rawMessages, readParts, nowMs)
+  if (responseTimings.length === 0) return undefined
+
+  const totalOutputTokens = responseTimings.reduce(
+    (total, response) => total + response.message.outputTokens,
     0,
   )
-  const totalReasoningTokens = recentMessages.reduce(
-    (total, message) => total + message.reasoningTokens,
+  const totalReasoningTokens = responseTimings.reduce(
+    (total, response) => total + response.message.reasoningTokens,
     0,
   )
   const totalActiveMs = responseTimings.reduce(
-    (total, response) =>
-      total +
-      (response.timing.activeMs > 0
-        ? response.timing.activeMs
-        : response.lifetimeMs),
+    (total, response) => total + responseActiveMs(response),
     0,
   )
   const activeSeconds = totalActiveMs / 1_000
@@ -216,48 +287,44 @@ export function resolveResponseUsageStatus(
     return undefined
   }
 
-  const averageFirstActivityLatencyMs = averageLatencyMs(
-    responseTimings,
-    (timing) => timing.firstActivityStartMs,
-  )
-  const averageFirstTextLatencyMs = averageLatencyMs(
-    responseTimings,
-    (timing) => timing.firstTextStartMs,
-  )
-  const totalLifetimeMs = responseTimings.reduce(
-    (total, response) => total + response.lifetimeMs,
-    0,
-  )
-  const averageResponseDurationMs = totalLifetimeMs / recentMessages.length
-
   return {
+    healthLevel: resolveHealthLevel(responseTimings.map(gradeResponseTiming)),
     averageTokensPerSecond,
     averageGenerationTokensPerSecond,
     includesReasoning: totalReasoningTokens > 0,
-    averageFirstActivityLatencyMs,
-    averageFirstTextLatencyMs,
-    averageResponseDurationMs,
+    averageFirstActivityLatencyMs: averageLatencyMs(
+      responseTimings,
+      (timing) => timing.firstActivityStartMs,
+    ),
+    averageFirstTextLatencyMs: averageLatencyMs(
+      responseTimings,
+      (timing) => timing.firstTextStartMs,
+    ),
   }
 }
 
-export function formatResponseUsageStatus(
-  usage: ResponseUsageStatus,
+function healthSegment(
+  level: ResponseHealthLevel | undefined,
+): ResponseUsageSegment | undefined {
+  if (level === "underperforming") return { value: level, tone: "error" }
+  if (level === "degraded") return { value: level, tone: "warning" }
+  if (level === "healthy") return { value: level, tone: "good" }
+  return undefined
+}
+
+// The line reads `healthy (62/118 tok/s ~ 0.4s/11.3s)`: the verdict leads
+// and the numbers that justify it follow in brackets. The brackets only
+// group a full reading — a verdict alone, or bare numbers without one, join
+// with the row's standard separator instead.
+export function formatResponseStatus(
+  status: ResponseStatus,
 ): ResponseUsageSegment[] {
-  const textRate = Math.round(usage.averageTokensPerSecond)
-  const generationRate = Math.round(usage.averageGenerationTokensPerSecond)
-  const rateValue =
-    usage.includesReasoning && generationRate !== textRate
-      ? `${textRate}/${generationRate}`
-      : `${textRate}`
-  const segments: ResponseUsageSegment[] = [
-    {
-      value: rateValue,
-      suffix: " tok/s",
-      tone: resolveTokenRateTone(usage.averageTokensPerSecond),
-    },
-  ]
-  const activityMs = usage.averageFirstActivityLatencyMs
-  const textMs = usage.averageFirstTextLatencyMs
+  const segments: ResponseUsageSegment[] = []
+  const verdict = healthSegment(status.healthLevel)
+  if (verdict) segments.push(verdict)
+
+  const activityMs = status.averageFirstActivityLatencyMs
+  const textMs = status.averageFirstTextLatencyMs
   const waitsMs: number[] = []
   if (activityMs !== undefined) waitsMs.push(activityMs)
   if (
@@ -266,15 +333,33 @@ export function formatResponseUsageStatus(
   ) {
     waitsMs.push(textMs)
   }
-  const values = [
-    ...waitsMs.map((waitMs) => formatDuration(waitMs)),
-    formatDuration(usage.averageResponseDurationMs),
-  ]
-  const healthMs = activityMs ?? textMs
-  segments.push({
-    value: values.join("/"),
-    prefix: "latency: ",
-    tone: healthMs === undefined ? "muted" : resolveLatencyTone(healthMs),
-  })
+  const bracketed = verdict !== undefined && waitsMs.length > 0
+
+  const textRate = Math.round(status.averageTokensPerSecond)
+  const generationRate = Math.round(status.averageGenerationTokensPerSecond)
+  const rateValue =
+    status.includesReasoning && generationRate !== textRate
+      ? `${textRate}/${generationRate}`
+      : `${textRate}`
+  const rateSegment: ResponseUsageSegment = {
+    value: rateValue,
+    tone: resolveTokenRateTone(status.averageTokensPerSecond),
+    suffix: " tok/s",
+  }
+  if (bracketed) {
+    rateSegment.prefix = "("
+    rateSegment.separator = " "
+  }
+  segments.push(rateSegment)
+
+  if (waitsMs.length === 0) return segments
+  const toneStartMs = activityMs ?? textMs
+  const waitsSegment: ResponseUsageSegment = {
+    value: waitsMs.map((waitMs) => formatDuration(waitMs)).join("/"),
+    tone: toneStartMs === undefined ? "muted" : resolveLatencyTone(toneStartMs),
+    separator: " ~ ",
+  }
+  if (bracketed) waitsSegment.suffix = ")"
+  segments.push(waitsSegment)
   return segments
 }
