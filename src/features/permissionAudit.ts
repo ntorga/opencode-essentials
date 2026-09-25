@@ -4,6 +4,7 @@ import { sanitizeText } from "../log.ts"
 import { resolveEssentialsStatePath } from "../state.ts"
 import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
 import type { PermissionRequest } from "../valueObject/permissionRequest.ts"
+import type { DecisionVerdict } from "./permissionDecision.ts"
 
 // `assistant` is the plugin's own rule answering on the user's behalf, with
 // no human and no Jev call — the doom-loop interrupt today.
@@ -55,6 +56,7 @@ export function auditPermissionClassification(input: {
   projectDirectory: string
   model: OpenRouterModelId
   probability: number
+  explanation?: string
   autoAllowed: boolean
 }): unknown {
   return appendAuditRecord({
@@ -62,6 +64,9 @@ export function auditPermissionClassification(input: {
     type: "classification",
     model: input.model,
     probability: input.probability,
+    ...(input.explanation === undefined
+      ? {}
+      : { explanation: input.explanation }),
     autoAllowed: input.autoAllowed,
   })
 }
@@ -71,11 +76,15 @@ export function auditPermissionDecision(input: {
   projectDirectory: string
   actor: PermissionAuditActor
   reply: PermissionAuditReply
+  classifierVerdict?: DecisionVerdict
 }): unknown {
   return appendAuditRecord({
     ...newAuditBase(input.request, input.projectDirectory),
     type: "decision",
     actor: input.actor,
     reply: input.reply,
+    ...(input.classifierVerdict === undefined
+      ? {}
+      : { classifier: input.classifierVerdict }),
   })
 }

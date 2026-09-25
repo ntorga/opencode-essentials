@@ -8,10 +8,10 @@ import {
   DEFAULT_CLASSIFIER_MODEL,
   isReasoningLoopProbability,
   isSafePermissionProbability,
-  newDecisionProbability,
+  newDecisionVerdict,
   REASONING_LOOP_CONFIRM_PROBABILITY,
   REASONING_LOOP_QUESTION,
-  requestDecisionProbability,
+  requestDecisionVerdict,
   SAFE_PERMISSION_THRESHOLD,
 } from "./permissionDecision.ts"
 
@@ -27,12 +27,52 @@ describe("Jev permission decisions", () => {
   })
 
   it("reads a valid safe probability", () => {
-    assert.equal(
-      newDecisionProbability(
+    assert.deepEqual(
+      newDecisionVerdict(
         { answers: { safe: { type: "noul", noul: 0.82 } } },
         "safe",
       ),
-      0.82,
+      { probability: 0.82 },
+    )
+  })
+
+  it("keeps an explanation the answering model provides", () => {
+    assert.deepEqual(
+      newDecisionVerdict(
+        {
+          answers: {
+            safe: { type: "noul", noul: 0.4, explanation: "rm is destructive" },
+          },
+        },
+        "safe",
+      ),
+      { probability: 0.4, explanation: "rm is destructive" },
+    )
+  })
+
+  it("strips control characters from an explanation", () => {
+    const verdict = newDecisionVerdict(
+      {
+        answers: {
+          safe: {
+            type: "noul",
+            noul: 0.4,
+            explanation: "rm\u001b]0;forged\u0007",
+          },
+        },
+      },
+      "safe",
+    )
+    assert.doesNotMatch(verdict?.explanation ?? "", /\p{Cc}/u)
+  })
+
+  it("drops a non-string explanation", () => {
+    assert.deepEqual(
+      newDecisionVerdict(
+        { answers: { safe: { type: "noul", noul: 0.4, explanation: 7 } } },
+        "safe",
+      ),
+      { probability: 0.4 },
     )
   })
 
@@ -50,7 +90,7 @@ describe("Jev permission decisions", () => {
 
   for (const response of invalidResponses) {
     it(`rejects an invalid response ${JSON.stringify(response)}`, () => {
-      assert.equal(newDecisionProbability(response, "safe"), undefined)
+      assert.equal(newDecisionVerdict(response, "safe"), undefined)
     })
   }
 
@@ -110,15 +150,15 @@ describe("classifier questions", () => {
     assert.equal(REASONING_LOOP_QUESTION.stateKey, "items")
     assert.equal(REASONING_LOOP_QUESTION.answerKey, "stuck")
     assert.match(REASONING_LOOP_QUESTION.instructions, /reasoning spiral/i)
-    assert.equal(
-      newDecisionProbability(
+    assert.deepEqual(
+      newDecisionVerdict(
         { answers: { stuck: { type: "noul", noul: 0.93 } } },
         "stuck",
       ),
-      0.93,
+      { probability: 0.93 },
     )
     assert.equal(
-      newDecisionProbability(
+      newDecisionVerdict(
         { answers: { safe: { type: "noul", noul: 0.93 } } },
         "stuck",
       ),
@@ -145,14 +185,14 @@ describe("classifier questions", () => {
       )
     }
     try {
-      const probability = await requestDecisionProbability({
+      const verdict = await requestDecisionVerdict({
         apiKey,
         model: DEFAULT_CLASSIFIER_MODEL,
         question: edit,
         patterns: ["src/index.ts"],
         signal: new AbortController().signal,
       })
-      assert.equal(probability, 0.9)
+      assert.deepEqual(verdict, { probability: 0.9 })
       if (!sentBody) throw new Error("TestFixtureRequestBodyMissing")
       assert.deepEqual(sentBody.state, { items: ["src/index.ts"] })
       assert.equal(sentBody.questions.safe.instructions, edit.instructions)

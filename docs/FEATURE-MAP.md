@@ -119,17 +119,21 @@ repeating itself. The permission assistant reads
 OpenRouter credentials from OpenCode's auth store, with an environment-variable
 fallback. `/essentials` can change the classifier model while OpenCode is
 running. A safe probability of 0.80 or higher replies once. Other results keep
-the prompt open and trigger a desktop notification when TUI notifications are
-enabled.
+the prompt open and trigger a desktop notification. On Linux the notification
+carries **Allow once** and **Allow always** buttons; it does not depend on the
+TUI attention settings.
 
 Every decision on a permission request is audited to `permission-audit.log` in
 the OpenCode data directory. A JSON line records each Jev classification that
 reaches a still open request (permission, model, safe probability, auto-allow
-verdict) and each request a human, the classifier, or the assistant allowed or
-rejected (permission, patterns, session id, actor `classifier`, `user`, or
-`assistant`, reply). Requests that OpenCode's own allow or deny rules handle
-never reach a prompt, so they never reach this log. Inspect the file to decide
-which commands or paths to add to the allow list.
+verdict, and the model's explanation when it provides one) and each request a
+human, the classifier, or the assistant allowed or rejected (permission,
+patterns, session id, actor `classifier`, `user`, or `assistant`, reply). A
+decision line that follows a below-threshold verdict also carries that verdict
+under `classifier`, so the human's reply shows why Jev deferred. Requests that
+OpenCode's own allow or deny rules handle never reach a prompt, so they never
+reach this log. Inspect the file to decide which commands or paths to add to
+the allow list.
 
 **Flow:**
 
@@ -145,16 +149,19 @@ which commands or paths to add to the allow list.
    credentials, model IDs, and reply identifiers.
 5. `src/features/permissionDecision.ts` — resolves the safety question for the
    request's permission, sends its patterns to the Decisions API, and
-   validates the returned safe probability.
+   validates the returned verdict: safe probability plus an optional
+   explanation from the answering model.
 6. `src/features/permissionAudit.ts` — appends the classification and decision
-   lines to the audit log, sanitizing and length-capping each pattern.
+   lines to the audit log, sanitizing and length-capping each pattern and
+   explanation.
 7. `src/features/notificationText.ts` — places request text after the
    end-of-options marker and escapes markup characters before passing it as
    the notification body.
 8. `src/permission-assistant.tsx` — replies `once` at 0.80 or higher, or
    `reject` with a correction message for a doom loop. Otherwise it keeps the
-   prompt open and uses Linux `notify-send` or the TUI attention API when
-   notifications are enabled. The Linux action can reply `once`.
+   prompt open and uses Linux `notify-send`, falling back to the gated TUI
+   attention API when that spawn fails. The desktop buttons reply `once` or
+   `always`.
 9. `src/features/permission-assistant.ts`, `src/features/registry.ts`,
    `src/tui.ts`, `src/state.ts`, and
    `src/documents/essentialsDocument.ts` — expose the feature toggle and

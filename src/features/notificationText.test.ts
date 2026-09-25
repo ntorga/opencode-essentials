@@ -30,6 +30,7 @@ describe("escapeNotificationMarkup", () => {
         "--wait",
         "--expire-time=0",
         "--action=allow=Allow once",
+        "--action=always=Allow always",
         "--",
         "OpenCode needs permission",
         "--action=allow=Do not allow",

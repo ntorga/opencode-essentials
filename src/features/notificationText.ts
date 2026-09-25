@@ -15,6 +15,7 @@ export function buildPermissionNotificationArguments(
     "--wait",
     "--expire-time=0",
     "--action=allow=Allow once",
+    "--action=always=Allow always",
     END_OF_OPTIONS,
     "OpenCode needs permission",
     escapeNotificationMarkup(notificationText),

@@ -78,12 +78,26 @@ describe("permission audit log", () => {
     assert.equal(line?.model, "typesafe/jev-1.13")
     assert.equal(line?.probability, 0.97)
     assert.equal(line?.autoAllowed, true)
+    assert.equal(line?.explanation, undefined)
     assert.deepEqual(line?.patterns, ["git status"])
     assert.equal(line?.project, "/home/dev/project")
     assert.equal(line?.session, "ses_test_1")
     assert.equal(line?.permission, "bash")
     assert.equal(line?.requestID, "per_test_1")
     assert.equal(typeof line?.time, "string")
+  })
+
+  it("records the explanation on the classification line when given", () => {
+    auditPermissionClassification({
+      request: trustedRequest(["rm -rf build"]),
+      projectDirectory: "/home/dev/project",
+      model: trustedModel("typesafe/jev-1.13"),
+      probability: 0.4,
+      explanation: "rm deletes files",
+      autoAllowed: false,
+    })
+    const [line] = readAuditLines()
+    assert.equal(line?.explanation, "rm deletes files")
   })
 
   it("appends decision lines for every actor and keeps one line per event", () => {
@@ -115,6 +129,28 @@ describe("permission audit log", () => {
         ["assistant", "reject", ["git status"]],
       ],
     )
+  })
+
+  it("attaches the deferred classifier verdict to the decision line", () => {
+    auditPermissionDecision({
+      request: trustedRequest(["rm -rf build"]),
+      projectDirectory: "/home/dev/project",
+      actor: "user",
+      reply: "once",
+      classifierVerdict: { probability: 0.24, explanation: "rm deletes files" },
+    })
+    auditPermissionDecision({
+      request: trustedRequest(["git push"]),
+      projectDirectory: "/home/dev/project",
+      actor: "classifier",
+      reply: "once",
+    })
+    const [deferred, decided] = readAuditLines()
+    assert.deepEqual(deferred?.classifier, {
+      probability: 0.24,
+      explanation: "rm deletes files",
+    })
+    assert.equal(decided?.classifier, undefined)
   })
 
   it("replaces control characters inside command patterns", () => {

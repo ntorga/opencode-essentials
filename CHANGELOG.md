@@ -3,6 +3,7 @@
 ```log
 0.5.0 - 2026/09/25
 chore: bump package version to 0.5.0
+feat: add the always action and audit the deferred classifier verdict
 docs: document the health verdict and the reasoning loop guard
 feat: cancel reasoning spirals with Jev's verdict
 feat: grade provider health in the status line

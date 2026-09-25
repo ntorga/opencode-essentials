@@ -148,12 +148,15 @@ an answer reach this flow.
   leaves the normal permission prompt open.
 - OpenCode v1 publishes a pending request before the TUI sees it. The prompt
   can appear briefly while Jev classifies the request.
-- On Linux, `notify-send` creates a freedesktop.org notification with an
-  **Allow once** action. KDE, GNOME, Budgie, and other notification servers
-  can show the action when they support notification actions. The prompt stays
-  available if the notification server ignores the action.
-- A desktop action replies `once`. A user reply in the TUI cancels the
-  classifier request and closes the notification.
+- On Linux, `notify-send` creates a freedesktop.org notification with
+  **Allow once** and **Allow always** buttons. KDE, GNOME, Budgie, and other
+  notification servers can show the actions when they support notification
+  actions. The prompt stays available if the notification server ignores
+  them. The desktop notification does not depend on OpenCode's TUI attention
+  settings.
+- A desktop action replies `once` or `always`. An `always` reply saves a
+  permission rule, the same as the TUI prompt's always option. A user reply
+  in the TUI cancels the classifier request and closes the notification.
 - The assistant sends permission patterns. It does not send the session
   transcript or project path. Jev sees the command text only: for a custom
   script the agent wants to run, it judges the invocation, not what the
@@ -162,9 +165,13 @@ an answer reach this flow.
 - Every request that reaches a decision is audited to `permission-audit.log`
   in the OpenCode data directory. One JSON line records each Jev
   classification that answers a still-open request: permission name, model,
-  safe probability, and auto-allow verdict. Another line records the decision:
-  permission name, patterns, session id, actor (`classifier`, `user`, or
-  `assistant`), and reply (`once`, `always`, or `reject`). A doom-loop
+  safe probability, and auto-allow verdict. The line also carries the
+  answering model's explanation when it provides one; Jev itself returns
+  none. Another line records the decision: permission name, patterns, session
+  id, actor (`classifier`, `user`, or `assistant`), and reply (`once`,
+  `always`, or `reject`). When a below-threshold verdict reaches the human,
+  the decision line also carries that verdict under `classifier`, so the
+  reply shows why Jev deferred. A doom-loop
   interrupt appears as one decision line with actor `assistant` and reply
   `reject`; it never reaches the classifier, so it writes no classification
   line. Commands that OpenCode's allow or
@@ -514,8 +521,9 @@ npm run typecheck # tsc --noEmit
     model, and enter its OpenRouter `provider/model` ID. Open the row again
     and restore the Jev default.
 12. Trigger a pending permission with a low Jev probability. Check that the
-    desktop notification offers **Allow once**. Dismissing it must leave the
-    OpenCode prompt open.
+    desktop notification offers **Allow once** and **Allow always**. Clicking
+    **Allow always** must answer the request and save the permission rule.
+    Dismissing the notification must leave the OpenCode prompt open.
 13. Complete an assistant response. Check that the status bar shows token
     rate, first-text latency, and total latency — a reasoning turn pairs the
     rate as `X/Y tok/s` — without an output count or cost. Disable

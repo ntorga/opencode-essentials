@@ -20,9 +20,10 @@ import { logRejectedHostId } from "./hostEventRejections.ts"
 import { permissionAssistantFeature } from "./permission-assistant.ts"
 import {
   DEFAULT_CLASSIFIER_MODEL,
+  type DecisionVerdict,
   isReasoningLoopProbability,
   REASONING_LOOP_QUESTION,
-  requestDecisionProbability,
+  requestDecisionVerdict,
 } from "./permissionDecision.ts"
 import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 
@@ -306,9 +307,9 @@ async function judgeSuspectedSpiral(
     }
     return
   }
-  let probability: number
+  let verdict: DecisionVerdict
   try {
-    probability = await requestDecisionProbability({
+    verdict = await requestDecisionVerdict({
       apiKey: credential.apiKey,
       model,
       question: REASONING_LOOP_QUESTION,
@@ -336,13 +337,13 @@ async function judgeSuspectedSpiral(
     })
     return
   }
-  if (!isReasoningLoopProbability(probability)) {
+  if (!isReasoningLoopProbability(verdict.probability)) {
     tracker.watcher.settle(sessionId, true)
     const policy = ensureSessionPolicy(tracker, sessionId)
     policy.unclearedReadings += 1
     await writeLog(tracker.client, "debug", "ReasoningLoopVerdictCleared", {
       sessionId,
-      probability: String(probability),
+      probability: String(verdict.probability),
       unclearedReadings: String(policy.unclearedReadings),
     })
     return
@@ -371,7 +372,7 @@ async function judgeSuspectedSpiral(
   policy.interruptCount += 1
   await writeLog(tracker.client, "warn", "ReasoningLoopInterrupted", {
     sessionId,
-    probability: String(probability),
+    probability: String(verdict.probability),
     interruptCount: String(policy.interruptCount),
   })
 }

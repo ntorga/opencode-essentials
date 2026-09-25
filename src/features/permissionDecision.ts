@@ -1,3 +1,4 @@
+import { sanitizeText } from "../log.ts"
 import type { OpenRouterApiKey } from "../valueObject/openRouterApiKey.ts"
 import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
 import type { PermissionName } from "../valueObject/permissionName.ts"
@@ -6,6 +7,11 @@ import { isRecord } from "../valueObject/util.ts"
 export const DEFAULT_CLASSIFIER_MODEL = "typesafe/jev-1.13" as OpenRouterModelId
 
 export const SAFE_PERMISSION_THRESHOLD = 0.8
+
+export type DecisionVerdict = {
+  probability: number
+  explanation?: string
+}
 
 export type ClassifierQuestion = {
   stateKey: "commands" | "items"
@@ -94,24 +100,42 @@ export function isReasoningLoopProbability(probability: unknown): boolean {
 const OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 const CLASSIFICATION_TIMEOUT_MS = 8_000
 
-export function newDecisionProbability(
+function newVerdictExplanation(
+  answer: Record<string, unknown>,
+): string | undefined {
+  const explanation = answer.explanation
+  if (typeof explanation !== "string" || explanation.length === 0) {
+    return undefined
+  }
+  return sanitizeText(explanation)
+}
+
+// Jev answers with a number only: its documented response carries no
+// explanation. The model id is configurable, so the parser keeps an
+// explanation when the answering model provides one.
+export function newDecisionVerdict(
   rawValue: unknown,
   answerKey: string,
-): number | undefined {
+): DecisionVerdict | undefined {
   if (!isRecord(rawValue) || !isRecord(rawValue.answers)) return undefined
   const answer = rawValue.answers[answerKey]
   if (!isRecord(answer)) return undefined
   if (answer.type !== "noul") return undefined
-  return newValidProbability(answer.noul)
+  const probability = newValidProbability(answer.noul)
+  if (probability === undefined) return undefined
+  const explanation = newVerdictExplanation(answer)
+  return explanation === undefined
+    ? { probability }
+    : { probability, explanation }
 }
 
-export async function requestDecisionProbability(input: {
+export async function requestDecisionVerdict(input: {
   apiKey: OpenRouterApiKey
   model: OpenRouterModelId
   question: ClassifierQuestion
   patterns: readonly string[]
   signal: AbortSignal
-}): Promise<number> {
+}): Promise<DecisionVerdict> {
   const timeout = AbortSignal.timeout(CLASSIFICATION_TIMEOUT_MS)
   const signal = AbortSignal.any([input.signal, timeout])
   const response = await fetch(OPENROUTER_DECISIONS_URL, {
@@ -137,12 +161,9 @@ export async function requestDecisionProbability(input: {
     throw new Error(`OpenRouterDecisionsRejected: ${response.status}`)
   }
   const rawResult: unknown = await response.json()
-  const probability = newDecisionProbability(
-    rawResult,
-    input.question.answerKey,
-  )
-  if (probability === undefined) {
+  const verdict = newDecisionVerdict(rawResult, input.question.answerKey)
+  if (verdict === undefined) {
     throw new Error("OpenRouterDecisionInvalid")
   }
-  return probability
+  return verdict
 }

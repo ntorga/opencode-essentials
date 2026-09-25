@@ -16,8 +16,9 @@ import {
   type ClassifierQuestion,
   classifierQuestion,
   DEFAULT_CLASSIFIER_MODEL,
+  type DecisionVerdict,
   isSafePermissionProbability,
-  requestDecisionProbability,
+  requestDecisionVerdict,
 } from "./features/permissionDecision.ts"
 import { sanitizeText } from "./log.ts"
 import { readOpenRouterApiKey } from "./openRouterAuth.ts"
@@ -36,6 +37,7 @@ import { newPermissionRequestId } from "./valueObject/permissionRequestId.ts"
 const MAX_CLASSIFIER_PATTERNS = 8
 const MAX_CLASSIFIER_PATTERN_CHARS = 2_000
 const ALLOW_ACTION = "allow"
+const ALWAYS_ACTION = "always"
 const DOOM_LOOP_PERMISSION = "doom_loop" as PermissionName
 const DOOM_LOOP_CORRECTION =
   "The doom-loop guard stopped this action: you are repeating the same call. Do not retry it unchanged. Change your approach or report the blocker and what you tried."
@@ -46,6 +48,7 @@ type PendingPermission = {
   notification?: ChildProcess
   hasReplied: boolean
   authorizedActor?: PermissionAuditActor
+  classifierVerdict?: DecisionVerdict
   fallbackWasShown: boolean
 }
 
@@ -219,8 +222,6 @@ function showLinuxPermissionNotification(
   pendingPermissions: Map<PermissionRequestId, PendingPermission>,
   permission: PendingPermission,
 ): void {
-  if (!canShowPermissionNotification(api)) return
-
   const notification = spawn(
     "notify-send",
     buildPermissionNotificationArguments(
@@ -246,8 +247,19 @@ function showLinuxPermissionNotification(
   })
   notification.once("close", (exitCode) => {
     if (!isCurrentPermission(pendingPermissions, permission)) return
-    if (selectedAction.trim() === ALLOW_ACTION) {
+    const action = selectedAction.trim()
+    if (action === ALLOW_ACTION) {
       void replyPermission(api, pendingPermissions, permission, "user", "once")
+      return
+    }
+    if (action === ALWAYS_ACTION) {
+      void replyPermission(
+        api,
+        pendingPermissions,
+        permission,
+        "user",
+        "always",
+      )
       return
     }
     if (exitCode !== 0) showAttentionNotification(api, permission)
@@ -323,9 +335,9 @@ async function answerOrNotifyPermission(
     return
   }
 
-  let probability: number
+  let verdict: DecisionVerdict
   try {
-    probability = await requestDecisionProbability({
+    verdict = await requestDecisionVerdict({
       apiKey: credential.apiKey,
       model,
       question,
@@ -340,18 +352,22 @@ async function answerOrNotifyPermission(
   }
 
   if (!isCurrentPermission(pendingPermissions, permission)) return
-  const autoAllowed = isSafePermissionProbability(probability)
+  const autoAllowed = isSafePermissionProbability(verdict.probability)
   const classificationFailure = auditPermissionClassification({
     request: permission.request,
     projectDirectory: api.state.path.directory,
     model,
-    probability,
+    probability: verdict.probability,
+    ...(verdict.explanation === undefined
+      ? {}
+      : { explanation: verdict.explanation }),
     autoAllowed,
   })
   if (classificationFailure) {
     await logAuditWriteFailure(api, classificationFailure)
   }
   if (!autoAllowed) {
+    permission.classifierVerdict = verdict
     showPermissionNotification(api, pendingPermissions, permission)
     return
   }
@@ -441,6 +457,9 @@ const tui: TuiPlugin = async (api) => {
         projectDirectory: api.state.path.directory,
         actor: permission.authorizedActor ?? "user",
         reply: event.properties.reply,
+        ...(permission.classifierVerdict === undefined
+          ? {}
+          : { classifierVerdict: permission.classifierVerdict }),
       })
       if (decisionFailure) {
         void logAuditWriteFailure(api, decisionFailure)
