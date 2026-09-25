@@ -230,15 +230,13 @@ the form `healthy (62/118 tok/s ~ 0.4s/11.3s)`. One window feeds both: the
 completed assistant responses of the last five minutes or the newest
 eighteen, whichever boundary is reached first. The rate pools output tokens
 over active generation time, and reasoning turns pair it as
-`output/all-generation tok/s`. The verdict grades every response in the
-window against the rate and start-latency bars and ranks the window from
-`flying` (blue, all good with fast averages) through `healthy` (green),
-`regular` (grey, any trouble short of the poor shares), and `sluggish`
-(yellow, a third poor) to `slow` (red, two thirds poor). Poor-share flips
-need two poor responses, so one outlier never reads worse than `regular`,
-and troubled responses alone keep the verdict grey. The themed
+`output/all-generation tok/s`. The verdict copies the colors of the numbers
+it leads: all blue renders `flying`, all green `healthy`, all yellow
+`sluggish`, any red `slow`, and colors that disagree `regular` in grey. The
+themed
 status bar places the idle counter first when the session is idle, then the
-verdict leading its bracketed numbers. Slow values change color. It does not
+verdict leading its bracketed numbers. Values and their units change color;
+brackets and separators stay muted. It does not
 show the output token count or response cost.
 
 **Flow:**
@@ -250,14 +248,15 @@ show the output token count or response cost.
 3. `src/valueObject/sessionId.ts` — validates the active session ID before the
    TUI reads its messages and parts.
 4. `src/usage-status.tsx` and `src/statusBar/usageStatus.ts` — read the validated
-   session's messages and parts, then grade and average the shared window. The
+   session's messages and parts, then pool the rate, take the median of the
+   waits, and pick the verdict from the numbers' tones. The
    token rate divides generated tokens by the part window minus tool execution
    time; the pair shows visible output speed over thinking-inclusive speed, so
    the first value never exceeds the second. Latency starts count only inside
    the message's created-to-completed window. Fewer than three responses in the
-   window hide the verdict but keep the numbers. Slow values render in warning
-   or error colors.
-5. `src/statusBar/tone.ts` — the shared good/muted/warning/error tone
+   window hide the verdict but keep the numbers. Fast values render in info
+   or good colors, slow ones in warning or error.
+5. `src/statusBar/tone.ts` — the shared info/good/muted/warning/error tone
    vocabulary and its theme mapping for status-bar text.
 6. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
    `src/valueObject/timestampMs.ts` — validate response metrics before

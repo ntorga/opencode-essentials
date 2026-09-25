@@ -260,16 +260,9 @@ the same padded line.
   first. A fresh session shows metrics from its first finished response;
   when the window empties, the metrics disappear rather than repeat stale
   numbers.
-- The verdict grades every response in the window. A rate under 40 tok/s or
-  a start above 3s makes a response troubled; under 20 tok/s or above 10s
-  makes it poor. The window then ranks: all responses good with averages of
-  at least 80 tok/s and a start within 1.5s render `flying` in light blue;
-  all good renders `healthy` in green; any trouble below the poor shares
-  renders `regular` in grey — not a problem, just not good; a third poor
-  renders `sluggish` in yellow; two thirds poor renders `slow` in red. The
-  share flips need at least two poor responses, so one outlier cannot drag
-  the verdict past `regular`. Troubled responses alone never lift the
-  verdict out of grey.
+- The verdict copies the colors of the numbers it leads: all blue renders
+  `flying`, all green `healthy`, all yellow `sluggish`, any red `slow`, and
+  colors that disagree `regular` in grey — not a problem, just not good.
   The word needs at least three responses, so it stays off while the
   window is still too short to read a habit.
 - The rate divides generated tokens by active generation time: the window
@@ -289,18 +282,22 @@ the same padded line.
 - Known limit: `tokens.output` includes tool-call payloads, and a response
   that opens with a tool call hides that call's argument time before the
   first part timestamp. Such turns read slightly fast.
-- The waits show as `~ start/first text`, averaged from assistant-message
-  creation. Start is when the model began producing its first part —
+- The waits show as `~ start/first text`, the median of the window measured
+  from assistant-message creation. A median ignores how extreme the outliers
+  are, so one 40-second stall cannot drag the line away from the response
+  you usually get. Start is when the model began producing its first part —
   reasoning or text. First text is when visible text began; the gap between
   the two is thinking time. When the model does not reason, the two
   coincide and the group collapses to one value. When part timing is
   missing, the group disappears and the rate stands alone. The old total
   turn duration is gone: it mostly measured tool time, which the rate
   window already excludes.
-- The token rate turns yellow below 40 tok/s and red below 20 tok/s. The
-  waits take their color from the start value: yellow above 3s, red above
-  10s. A slow start is a provider problem; long thinking is not. Only the
-  numbers carry color; brackets, separators, and units stay muted.
+- The numbers carry the same bands the verdict reads: the token rate is blue
+  at 80 tok/s or better, green at 40, yellow at 20, red below. The waits
+  take their color from the start value: blue at 1.5s or less, green at 3s,
+  yellow at 10s, red beyond. A slow start is a provider problem; long
+  thinking is not. Numbers and units carry the color; brackets and
+  separators stay muted.
 - The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
 

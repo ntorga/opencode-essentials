@@ -82,16 +82,16 @@ idle: 2m 38s · healthy (62/118 tok/s ~ 0.4s/11.3s)
   date joins the stamp when the wait began before today.
 - `healthy (…)` — the provider verdict, and the window of readings that
   justify it. The window holds the completed responses of the last five
-  minutes or the newest eighteen, whichever boundary is reached first. A
-  response grades poor when its rate or its start lands in the red.
+  minutes or the newest eighteen, whichever boundary is reached first. The
+  verdict copies the colors of its numbers:
 
   | Verdict | Color | Rule |
   |---|---|---|
-  | `flying` | blue | all good above 80 tok/s |
-  | `healthy` | green | all good |
-  | `regular` | grey | not a problem, just not good |
-  | `sluggish` | yellow | a third grade poor |
-  | `slow` | red | two thirds grade poor |
+  | `flying` | blue | all numbers blue |
+  | `healthy` | green | all numbers green |
+  | `regular` | grey | the colors disagree |
+  | `sluggish` | yellow | all numbers yellow |
+  | `slow` | red | any number red |
 
   The word needs three responses, so a fresh session shows the numbers
   alone, with no brackets. Once the window empties, the metrics disappear
@@ -100,10 +100,12 @@ idle: 2m 38s · healthy (62/118 tok/s ~ 0.4s/11.3s)
   which adds the model's hidden thinking tokens. The pair answers "is the
   provider slow, or is the model just thinking?": `20/200` streams fine and
   the wait was reasoning, while `20/24` genuinely crawls. A non-reasoning
-  model shows one number. Yellow below 40, red below 20.
-- `~ 0.4s/11.3s` — the average waits: until the model started answering, and
-  until the first visible text. The color follows the start value: yellow
-  above 3s, red above 10s. Only the numbers carry color.
+  model shows one number. Blue above 80, green above 40, yellow above 20,
+  red below.
+- `~ 0.4s/11.3s` — the median waits: until the model started answering, and
+  until the first visible text. The color follows the start value: blue
+  under 1.5s, green under 3s, yellow under 10s, red above. Numbers and
+  units carry the color; the separators stay grey.
 
 The full measurement rules live in
 [`src/README.md`](src/README.md#response-usage-status).

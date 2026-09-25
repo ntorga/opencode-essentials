@@ -130,13 +130,13 @@ describe("resolveResponseStatus", () => {
       averageTokensPerSecond: 20,
       averageGenerationTokensPerSecond: 20,
       includesReasoning: false,
-      averageFirstActivityLatencyMs: 3_000,
-      averageFirstTextLatencyMs: 3_000,
+      medianFirstActivityLatencyMs: 3_000,
+      medianFirstTextLatencyMs: 3_000,
     })
     assert.ok(status)
     assert.deepEqual(formatResponseStatus(status), [
       { value: "20", tone: "warning", suffix: " tok/s" },
-      { value: "3.0", tone: "muted", separator: " ~ ", suffix: "s" },
+      { value: "3.0s", tone: "good", separator: " ~ " },
     ])
   })
 
@@ -159,7 +159,7 @@ describe("resolveResponseStatus", () => {
     )
 
     assert.equal(status?.averageTokensPerSecond, 50)
-    assert.equal(status?.averageFirstActivityLatencyMs, 2_000)
+    assert.equal(status?.medianFirstActivityLatencyMs, 2_000)
   })
 
   it("keeps argument gaps and drops tool runs across bursts", () => {
@@ -303,7 +303,7 @@ describe("resolveResponseStatus", () => {
     )
 
     assert.ok(status)
-    assert.equal(status.averageFirstActivityLatencyMs, 4_000)
+    assert.equal(status.medianFirstActivityLatencyMs, 4_000)
     assert.equal(formatResponseStatus(status)[1]?.tone, "warning")
   })
 
@@ -325,8 +325,8 @@ describe("resolveResponseStatus", () => {
     )
 
     assert.ok(status)
-    assert.equal(status.averageFirstTextLatencyMs, undefined)
-    assert.equal(status.averageFirstActivityLatencyMs, undefined)
+    assert.equal(status.medianFirstTextLatencyMs, undefined)
+    assert.equal(status.medianFirstActivityLatencyMs, undefined)
     assert.equal(status.averageTokensPerSecond, 5)
     assert.deepEqual(formatResponseStatus(status), [
       { value: "5", tone: "error", suffix: " tok/s" },
@@ -382,7 +382,7 @@ describe("resolveResponseStatus", () => {
     assert.equal(formatResponseStatus(status)[0]?.value, "30")
   })
 
-  it("grades the window verdict from response shares", () => {
+  it("copies the verdict from the displayed numbers' colors", () => {
     const placements: ResponsePlacement[] = [
       {
         id: "msg_healthy_one",
@@ -410,18 +410,15 @@ describe("resolveResponseStatus", () => {
     )
     assert.equal(healthy?.healthLevel, "healthy")
 
-    const troubled: ResponsePlacement[] = [
-      {
-        id: "msg_troubled",
-        completedAgoMs: 10_000,
-        durationMs: 10_000,
-        outputTokens: 300,
-      },
-    ]
-    const troubledShare = resolveResponseStatus(
+    const sluggish = resolveResponseStatus(
       [
         placements[0],
-        ...troubled,
+        {
+          id: "msg_troubled",
+          completedAgoMs: 10_000,
+          durationMs: 10_000,
+          outputTokens: 300,
+        },
         {
           id: "msg_troubled_two",
           completedAgoMs: 15_000,
@@ -432,41 +429,16 @@ describe("resolveResponseStatus", () => {
       () => [],
       NOW_MS,
     )
-    assert.equal(troubledShare?.healthLevel, "regular")
-
-    const poor: ResponsePlacement[] = [
-      {
-        id: "msg_poor",
-        completedAgoMs: 10_000,
-        durationMs: 10_000,
-        outputTokens: 100,
-      },
-    ]
-    const lonePoor = resolveResponseStatus(
-      [...placements.slice(0, 2), ...poor].map(createAssistantMessage),
-      () => [],
-      NOW_MS,
-    )
-    assert.equal(lonePoor?.healthLevel, "regular")
-    const sluggish = resolveResponseStatus(
-      [
-        ...placements,
-        ...poor,
-        {
-          id: "msg_poor_two",
-          completedAgoMs: 15_000,
-          durationMs: 10_000,
-          outputTokens: 100,
-        },
-      ].map(createAssistantMessage),
-      () => [],
-      NOW_MS,
-    )
     assert.equal(sluggish?.healthLevel, "sluggish")
 
     const slow = resolveResponseStatus(
       [
-        ...poor,
+        {
+          id: "msg_poor",
+          completedAgoMs: 10_000,
+          durationMs: 10_000,
+          outputTokens: 100,
+        },
         {
           id: "msg_poor_two",
           completedAgoMs: 15_000,
@@ -479,12 +451,80 @@ describe("resolveResponseStatus", () => {
           durationMs: 10_000,
           outputTokens: 100,
         },
-        placements[0],
       ].map(createAssistantMessage),
       () => [],
       NOW_MS,
     )
     assert.equal(slow?.healthLevel, "slow")
+
+    const mixedResponses = [
+      {
+        id: "msg_mix_one",
+        completedAgoMs: 10_000,
+        durationMs: 10_000,
+        outputTokens: 300,
+      },
+      {
+        id: "msg_mix_two",
+        completedAgoMs: 20_000,
+        durationMs: 10_000,
+        outputTokens: 300,
+      },
+      {
+        id: "msg_mix_three",
+        completedAgoMs: 30_000,
+        durationMs: 10_000,
+        outputTokens: 200,
+      },
+    ]
+    const regular = resolveResponseStatus(
+      mixedResponses.map(createAssistantMessage),
+      mergePartReaders(
+        mixedResponses.map((response) =>
+          createPartReader(response, {
+            textStartMs: 800,
+            textEndMs: 10_000,
+          }),
+        ),
+      ),
+      NOW_MS,
+    )
+    assert.equal(regular?.healthLevel, "regular")
+  })
+
+  it("reads the middle start, not the stall", () => {
+    const responses: ResponsePlacement[] = [
+      {
+        id: "msg_stall_a",
+        completedAgoMs: 10_000,
+        durationMs: 10_000,
+        outputTokens: 500,
+      },
+      {
+        id: "msg_stall_b",
+        completedAgoMs: 20_000,
+        durationMs: 10_000,
+        outputTokens: 500,
+      },
+      {
+        id: "msg_stall_c",
+        completedAgoMs: 70_000,
+        durationMs: 60_000,
+        outputTokens: 4_800,
+      },
+    ]
+    const status = resolveResponseStatus(
+      responses.map(createAssistantMessage),
+      mergePartReaders([
+        createPartReader(responses[0], { textStartMs: 1_000 }),
+        createPartReader(responses[1], { textStartMs: 2_000 }),
+        createPartReader(responses[2], { textStartMs: 40_000 }),
+      ]),
+      NOW_MS,
+    )
+
+    assert.equal(status?.medianFirstActivityLatencyMs, 2_000)
+    assert.equal(status?.healthLevel, "healthy")
   })
 
   it("earns flying when every response is good and the averages are fast", () => {
@@ -558,7 +598,7 @@ describe("resolveResponseStatus", () => {
     assert.equal(status?.averageTokensPerSecond, 50)
   })
 
-  it("grades a slow response start as troubled", () => {
+  it("keeps the verdict grey when a slow start disagrees with a fine rate", () => {
     const slowStartId = "msg_slow_c"
     const slowStartAgoMs = 30_000
     const slowStartCreatedMs = NOW_MS - slowStartAgoMs - 10_000
@@ -683,8 +723,8 @@ describe("formatResponseStatus", () => {
         averageTokensPerSecond: 50,
         averageGenerationTokensPerSecond: 50,
         includesReasoning: false,
-        averageFirstActivityLatencyMs: undefined,
-        averageFirstTextLatencyMs: undefined,
+        medianFirstActivityLatencyMs: undefined,
+        medianFirstTextLatencyMs: undefined,
       })
       assert.deepEqual(segment, { value: level, tone })
     }
@@ -696,31 +736,53 @@ describe("formatResponseStatus", () => {
       averageTokensPerSecond: 62,
       averageGenerationTokensPerSecond: 118,
       includesReasoning: true,
-      averageFirstActivityLatencyMs: 400,
-      averageFirstTextLatencyMs: 11_300,
+      medianFirstActivityLatencyMs: 400,
+      medianFirstTextLatencyMs: 11_300,
     })
 
     assert.deepEqual(segments, [
       { value: "healthy", tone: "good" },
       {
         value: "62/118",
-        tone: "muted",
+        tone: "good",
         prefix: "(",
         suffix: " tok/s",
         separator: " ",
       },
       {
-        value: "400",
-        tone: "muted",
-        suffix: "ms",
+        value: "400ms",
+        tone: "info",
         separator: " ~ ",
       },
       {
-        value: "11.3",
-        tone: "muted",
-        suffix: "s)",
+        value: "11.3s",
+        tone: "info",
+        suffix: ")",
         separator: "/",
       },
+    ])
+  })
+
+  it("colors the numbers on the same bands the verdict reads", () => {
+    const segments = formatResponseStatus({
+      healthLevel: "flying",
+      averageTokensPerSecond: 90,
+      averageGenerationTokensPerSecond: 90,
+      includesReasoning: false,
+      medianFirstActivityLatencyMs: 900,
+      medianFirstTextLatencyMs: undefined,
+    })
+
+    assert.deepEqual(segments, [
+      { value: "flying", tone: "info" },
+      {
+        value: "90",
+        tone: "info",
+        prefix: "(",
+        suffix: " tok/s",
+        separator: " ",
+      },
+      { value: "900ms", tone: "info", suffix: ")", separator: " ~ " },
     ])
   })
 
@@ -730,13 +792,13 @@ describe("formatResponseStatus", () => {
       averageTokensPerSecond: 62,
       averageGenerationTokensPerSecond: 62,
       includesReasoning: false,
-      averageFirstActivityLatencyMs: 400,
-      averageFirstTextLatencyMs: undefined,
+      medianFirstActivityLatencyMs: 400,
+      medianFirstTextLatencyMs: undefined,
     })
 
     assert.deepEqual(segments, [
-      { value: "62", tone: "muted", suffix: " tok/s" },
-      { value: "400", tone: "muted", separator: " ~ ", suffix: "ms" },
+      { value: "62", tone: "good", suffix: " tok/s" },
+      { value: "400ms", tone: "info", separator: " ~ " },
     ])
   })
 
@@ -746,8 +808,8 @@ describe("formatResponseStatus", () => {
       averageTokensPerSecond: 30,
       averageGenerationTokensPerSecond: 30,
       includesReasoning: false,
-      averageFirstActivityLatencyMs: undefined,
-      averageFirstTextLatencyMs: undefined,
+      medianFirstActivityLatencyMs: undefined,
+      medianFirstTextLatencyMs: undefined,
     })
 
     assert.deepEqual(segments, [

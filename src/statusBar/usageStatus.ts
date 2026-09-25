@@ -8,22 +8,19 @@ import type { StatusBarTone } from "./tone.ts"
 
 const TOKEN_RATE_ERROR_TPS = 20
 const TOKEN_RATE_WARNING_TPS = 40
+const TOKEN_RATE_FLYING_TPS = 80
 const LATENCY_ERROR_MS = 10_000
 const LATENCY_WARNING_MS = 3_000
+const LATENCY_FLYING_MS = 1_500
 const RESPONSE_WINDOW_MS = 5 * 60_000
 const RESPONSE_WINDOW_SIZE = 18
 const HEALTH_MIN_RESPONSES = 3
-const HEALTH_FLIP_SHARE = 1 / 3
-const HEALTH_SLOW_SHARE = 2 / 3
-const HEALTH_MIN_BAD_COUNT = 2
-const HEALTH_FLYING_TOKEN_RATE_TPS = 80
-const HEALTH_FLYING_START_MS = 1_500
 
-// Five ranks, readable as a gradient: flying (blue) over healthy (green)
-// over regular (grey) over sluggish (yellow) over slow (red). Troubles that
-// never cross the poor bar keep the verdict grey: regular is not a problem,
-// just not good. The share flips need two poor responses so one outlier
-// cannot leave `regular`.
+// Five ranks, readable as the gradient of the numbers they lead: flying
+// (blue) over healthy (green) over regular (grey) over sluggish (yellow)
+// over slow (red). The verdict copies the numbers' colors: it takes the one
+// color all numbers share, or grey when they disagree — not a problem, just
+// not good.
 export type ResponseHealthLevel =
   | "flying"
   | "healthy"
@@ -46,8 +43,8 @@ export type ResponseStatus = {
   averageTokensPerSecond: number
   averageGenerationTokensPerSecond: number
   includesReasoning: boolean
-  averageFirstActivityLatencyMs: number | undefined
-  averageFirstTextLatencyMs: number | undefined
+  medianFirstActivityLatencyMs: number | undefined
+  medianFirstTextLatencyMs: number | undefined
 }
 
 type GenerationPartTiming = {
@@ -55,8 +52,6 @@ type GenerationPartTiming = {
   firstTextStartMs: TimestampMs | undefined
   activeMs: number
 }
-
-type ResponseGrade = "good" | "troubled" | "poor"
 
 function partTimeMs(
   rawPart: Record<string, unknown>,
@@ -151,31 +146,23 @@ function measureGenerationParts(
   return { firstActivityStartMs, firstTextStartMs, activeMs }
 }
 
-function splitDuration(durationMs: number): {
-  value: string
-  unit: string
-} {
-  if (durationMs < 1_000) {
-    return { value: `${Math.round(durationMs)}`, unit: "ms" }
-  }
-  return { value: (durationMs / 1_000).toFixed(1), unit: "s" }
-}
-
 function formatDuration(durationMs: number): string {
-  const split = splitDuration(durationMs)
-  return `${split.value}${split.unit}`
+  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`
+  return `${(durationMs / 1_000).toFixed(1)}s`
 }
 
 function resolveTokenRateTone(tokensPerSecond: number): StatusBarTone {
   if (tokensPerSecond < TOKEN_RATE_ERROR_TPS) return "error"
   if (tokensPerSecond < TOKEN_RATE_WARNING_TPS) return "warning"
-  return "muted"
+  if (tokensPerSecond >= TOKEN_RATE_FLYING_TPS) return "info"
+  return "good"
 }
 
 function resolveLatencyTone(latencyMs: number): StatusBarTone {
   if (latencyMs > LATENCY_ERROR_MS) return "error"
   if (latencyMs > LATENCY_WARNING_MS) return "warning"
-  return "muted"
+  if (latencyMs <= LATENCY_FLYING_MS) return "info"
+  return "good"
 }
 
 type ResponseTiming = {
@@ -217,19 +204,23 @@ function measureResponseTiming(
   }
 }
 
-function averageLatencyMs(
+// The middle of the window's latencies, not its mean: one 40-second stall
+// drags a mean past the truth, while the median keeps reporting the
+// response the provider actually delivers most of the time.
+function medianLatencyMs(
   responseTimings: readonly ResponseTiming[],
   readStartMs: (timing: GenerationPartTiming) => TimestampMs | undefined,
 ): number | undefined {
-  const latenciesMs = responseTimings.flatMap(({ message, timing }) => {
-    const latencyMs = latencySinceMessageStart(message, readStartMs(timing))
-    return latencyMs === undefined ? [] : [latencyMs]
-  })
+  const latenciesMs = responseTimings
+    .flatMap(({ message, timing }) => {
+      const latencyMs = latencySinceMessageStart(message, readStartMs(timing))
+      return latencyMs === undefined ? [] : [latencyMs]
+    })
+    .toSorted((first, second) => first - second)
   if (latenciesMs.length === 0) return undefined
-  return (
-    latenciesMs.reduce((total, latencyMs) => total + latencyMs, 0) /
-    latenciesMs.length
-  )
+  const middle = Math.floor(latenciesMs.length / 2)
+  if (latenciesMs.length % 2 === 1) return latenciesMs[middle]
+  return (latenciesMs[middle - 1] + latenciesMs[middle]) / 2
 }
 
 function windowResponseTimings(
@@ -248,59 +239,40 @@ function windowResponseTimings(
     .map((message) => measureResponseTiming(message, readParts))
 }
 
-function gradeResponseTiming(response: ResponseTiming): ResponseGrade {
-  const startLatencyMs = latencySinceMessageStart(
-    response.message,
-    response.timing.firstActivityStartMs,
-  )
-  const tones: StatusBarTone[] = [
-    resolveTokenRateTone(
-      response.message.outputTokens / (responseActiveMs(response) / 1_000),
-    ),
-  ]
-  if (startLatencyMs !== undefined)
-    tones.push(resolveLatencyTone(startLatencyMs))
-  if (tones.includes("error")) return "poor"
-  if (tones.includes("warning")) return "troubled"
-  return "good"
+// One tone source for the numbers and the verdict, so the verdict can
+// never disagree with the colors it leads: the rate gets its tone from the
+// pooled average, the waits from the start median that paints them.
+function displayTones(readings: {
+  averageTokensPerSecond: number
+  medianFirstActivityLatencyMs: number | undefined
+  medianFirstTextLatencyMs: number | undefined
+}): { rate: StatusBarTone; waits: StatusBarTone | undefined } {
+  const toneStartMs =
+    readings.medianFirstActivityLatencyMs ?? readings.medianFirstTextLatencyMs
+  return {
+    rate: resolveTokenRateTone(readings.averageTokensPerSecond),
+    waits:
+      toneStartMs === undefined ? undefined : resolveLatencyTone(toneStartMs),
+  }
 }
 
 // A verdict needs a streak to read: fewer than HEALTH_MIN_RESPONSES
 // completed responses in the window say nothing about the provider's habit.
-// Worst rank first: each following rule holds only while the worse ones are
-// false, so `regular` is the catch for any window with a troublemaker that
-// cannot flip a poor share, and the good-only tail below it can earn
-// `flying` on fast averages.
+// The verdict copies the numbers' colors: the shared color wins, any red
+// makes it `slow`, and a mix that agrees on nothing stays grey `regular`.
 function resolveHealthLevel(
-  grades: readonly ResponseGrade[],
-  averages: {
-    averageTokensPerSecond: number
-    averageFirstActivityLatencyMs: number | undefined
-  },
+  tones: { rate: StatusBarTone; waits: StatusBarTone | undefined },
+  responseCount: number,
 ): ResponseHealthLevel | undefined {
-  if (grades.length < HEALTH_MIN_RESPONSES) return undefined
-  const poorCount = grades.filter((grade) => grade === "poor").length
-  const badCount = grades.filter((grade) => grade !== "good").length
-  const share = (count: number) => count / grades.length
-  if (
-    poorCount >= HEALTH_MIN_BAD_COUNT &&
-    share(poorCount) >= HEALTH_SLOW_SHARE
-  )
-    return "slow"
-  if (
-    poorCount >= HEALTH_MIN_BAD_COUNT &&
-    share(poorCount) >= HEALTH_FLIP_SHARE
-  )
-    return "sluggish"
-  if (badCount > 0) return "regular"
-  const startMs = averages.averageFirstActivityLatencyMs
-  if (
-    averages.averageTokensPerSecond >= HEALTH_FLYING_TOKEN_RATE_TPS &&
-    startMs !== undefined &&
-    startMs <= HEALTH_FLYING_START_MS
-  )
-    return "flying"
-  return "healthy"
+  if (responseCount < HEALTH_MIN_RESPONSES) return undefined
+  const numberTones: StatusBarTone[] =
+    tones.waits === undefined ? [tones.rate] : [tones.rate, tones.waits]
+  if (numberTones.includes("error")) return "slow"
+  if (numberTones.every((tone) => tone === "info")) return "flying"
+  if (numberTones.every((tone) => tone === "info" || tone === "good"))
+    return "healthy"
+  if (numberTones.every((tone) => tone === "warning")) return "sluggish"
+  return "regular"
 }
 
 export function resolveResponseStatus(
@@ -334,23 +306,28 @@ export function resolveResponseStatus(
     return undefined
   }
 
-  const averageFirstActivityLatencyMs = averageLatencyMs(
+  const medianFirstActivityLatencyMs = medianLatencyMs(
     responseTimings,
     (timing) => timing.firstActivityStartMs,
   )
+  const medianFirstTextLatencyMs = medianLatencyMs(
+    responseTimings,
+    (timing) => timing.firstTextStartMs,
+  )
   return {
-    healthLevel: resolveHealthLevel(responseTimings.map(gradeResponseTiming), {
-      averageTokensPerSecond,
-      averageFirstActivityLatencyMs,
-    }),
+    healthLevel: resolveHealthLevel(
+      displayTones({
+        averageTokensPerSecond,
+        medianFirstActivityLatencyMs,
+        medianFirstTextLatencyMs,
+      }),
+      responseTimings.length,
+    ),
     averageTokensPerSecond,
     averageGenerationTokensPerSecond,
     includesReasoning: totalReasoningTokens > 0,
-    averageFirstActivityLatencyMs,
-    averageFirstTextLatencyMs: averageLatencyMs(
-      responseTimings,
-      (timing) => timing.firstTextStartMs,
-    ),
+    medianFirstActivityLatencyMs,
+    medianFirstTextLatencyMs,
   }
 }
 
@@ -380,8 +357,8 @@ export function formatResponseStatus(
   const verdict = healthSegment(status.healthLevel)
   if (verdict) segments.push(verdict)
 
-  const activityMs = status.averageFirstActivityLatencyMs
-  const textMs = status.averageFirstTextLatencyMs
+  const activityMs = status.medianFirstActivityLatencyMs
+  const textMs = status.medianFirstTextLatencyMs
   const waitsMs: number[] = []
   if (activityMs !== undefined) waitsMs.push(activityMs)
   if (
@@ -398,9 +375,10 @@ export function formatResponseStatus(
     status.includesReasoning && generationRate !== textRate
       ? `${textRate}/${generationRate}`
       : `${textRate}`
+  const tones = displayTones(status)
   const rateSegment: ResponseUsageSegment = {
     value: rateValue,
-    tone: resolveTokenRateTone(status.averageTokensPerSecond),
+    tone: tones.rate,
     suffix: " tok/s",
   }
   if (bracketed) {
@@ -410,18 +388,14 @@ export function formatResponseStatus(
   segments.push(rateSegment)
 
   if (waitsMs.length === 0) return segments
-  const toneStartMs = activityMs ?? textMs
-  const waitsTone =
-    toneStartMs === undefined ? "muted" : resolveLatencyTone(toneStartMs)
   waitsMs.forEach((waitMs, index) => {
-    const wait = splitDuration(waitMs)
-    const closesBracket = bracketed && index === waitsMs.length - 1
-    segments.push({
-      value: wait.value,
-      tone: waitsTone,
-      suffix: closesBracket ? `${wait.unit})` : wait.unit,
+    const segment: ResponseUsageSegment = {
+      value: formatDuration(waitMs),
+      tone: tones.waits ?? "muted",
       separator: index === 0 ? " ~ " : "/",
-    })
+    }
+    if (bracketed && index === waitsMs.length - 1) segment.suffix = ")"
+    segments.push(segment)
   })
   return segments
 }
