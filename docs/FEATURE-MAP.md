@@ -54,8 +54,8 @@ runtime.
 
 Shows how long the open session has been idle — the time since the model
 stopped answering and left the floor to the user — at the start of the shared
-status bar. It stamps the local idle start time, adding the date for waits
-that began before today. It turns yellow at
+status bar. It stamps the local idle start time once the wait passes thirty
+minutes, adding the date for waits that began before today. It turns yellow at
 half of the idle auto-compactor timeout and red at 80 percent. It is feature 3
 of the essentials suite and is toggled at runtime from the same `/essentials`
 dialog. It is a TUI-only feature: it has no server hooks.
@@ -71,7 +71,8 @@ dialog. It is a TUI-only feature: it has no server hooks.
 4. `src/statusBar/idleWaiting.ts` — the pure logic. It reads the host Message shapes,
    takes the newest real assistant completion as the idle anchor — skipping
    the auto-compactor's summary turn — and formats elapsed time, the local
-   start stamp (date included only for earlier-day waits), and timer color.
+   start stamp (only past the thirty-minute mark, with the date for
+   earlier-day waits), and timer color.
    The host only tracks busy and retry states,
    so a missing status is idle; the line hides only while busy or retrying.
 5. `src/state.ts` — reads the master switch, the `idle-clock` flag, the idle
@@ -173,14 +174,61 @@ actions.
 
 ---
 
+## Reasoning Loop Guard
+
+Cancels a response whose reasoning repeats itself. The doom-loop guard in the
+Permission Assistant only sees repeated tool calls; this guard watches the
+reasoning stream. It keeps the last 256 reasoning words per response, checks
+every 128 new words, and treats the final 24-word phrase appearing three
+times in the window as a suspect. A suspect goes to Jev's Decisions API
+through the shared classifier request; at 0.80 or higher the guard aborts the
+run and delivers a correction prompt that names the spiral. A verdict that
+arrives after the response ended is dropped. Two caps bound the guard: three
+confirmed interrupts per user turn, and three uncleared readings on the same
+loop — abstentions, failed calls, or a missing credential — after which the
+fourth suspect is treated as a runaway regardless of the classifier, so the
+guard cancels without a verdict. A TUI companion counts the same suspects and
+wakes the human at the fourth. Server feature 5; a `/essentials`
+row toggles it and the classifier model of the Permission Assistant applies to
+it too.
+
+**Flow:**
+
+1. `src/server.ts` — server entry. Builds the guard's hooks with the feature's options.
+2. `src/features/reasoning-loop-guard.ts` — the shared suspect watcher tracks the
+   reasoning tail; the server subscribes to `message.part.updated`, feeds the
+   watcher, asks `session.abort` and delivers the correction through
+   `session.promptAsync`, and spends the interrupt and abstention budgets.
+3. `src/features/permissionDecision.ts` — the shared Decisions API request,
+   the "stuck" question for reasoning spirals, and the 0.80 confirmation
+   threshold.
+4. `src/openRouterAuth.ts` + `src/state.ts` — the credential and the
+   classifier model, shared with the Permission Assistant; the toggle file
+   gates the feature at the decision point.
+5. `src/reasoning-loop-escalation.tsx` — TUI companion. It runs the same suspect
+   watcher over `message.part.updated` and, at the fourth suspect in a
+   response, raises the human wake-up through the attention API (toast
+   fallback), logging `ReasoningLoopHumanEscalation`.
+6. `src/tui.ts` — the `/essentials` row toggles the guard at runtime.
+7. `src/features/reasoning-loop-guard.test.ts` — tests spiral detection,
+   confirmed interrupts, cleared and stale verdicts, the budgets, and the
+   disabled paths.
+
+---
+
 ## Response Usage Status
 
-Shows output tokens per second and a start/first-text/total latency group,
-averaged over the newest completed assistant responses; reasoning turns pair
-the rate as `output/all-generation tok/s`. The themed status bar places the
-idle counter first when the session is idle. Slow rates and slow response
-starts change color. It does not show the output token count or response
-cost.
+Shows a provider health verdict and the response metrics that justify it, in
+the form `healthy (62/118 tok/s ~ 0.4s/11.3s)`. One window feeds both: the
+completed assistant responses of the last five minutes or the newest
+eighteen, whichever boundary is reached first. The rate pools output tokens
+over active generation time, and reasoning turns pair it as
+`output/all-generation tok/s`. The verdict grades every response in the
+window against the rate and start-latency bars; a troubled third makes it
+`degraded`, a poor third `underperforming`, otherwise `healthy`. The themed
+status bar places the idle counter first when the session is idle, then the
+verdict leading its bracketed numbers. Slow values change color. It does not
+show the output token count or response cost.
 
 **Flow:**
 
@@ -191,21 +239,23 @@ cost.
 3. `src/valueObject/sessionId.ts` — validates the active session ID before the
    TUI reads its messages and parts.
 4. `src/usage-status.tsx` and `src/statusBar/usageStatus.ts` — read the validated
-   session's messages and parts, then average the newest three completed
-   responses. The token rate divides generated tokens by the part window
-   minus tool execution time; the pair shows output speed over
-   thinking-inclusive speed, so the first value never exceeds the second.
-   Latency starts count only inside the message's created-to-completed
-   window. Slow values render in warning or error colors.
-5. `src/statusBar/tone.ts` — the shared muted/warning/error tone vocabulary
-   and its theme mapping for status-bar text.
+   session's messages and parts, then grade and average the shared window. The
+   token rate divides generated tokens by the part window minus tool execution
+   time; the pair shows visible output speed over thinking-inclusive speed, so
+   the first value never exceeds the second. Latency starts count only inside
+   the message's created-to-completed window. Fewer than three responses in the
+   window hide the verdict but keep the numbers. Slow values render in warning
+   or error colors.
+5. `src/statusBar/tone.ts` — the shared good/muted/warning/error tone
+   vocabulary and its theme mapping for status-bar text.
 6. `src/valueObject/messageId.ts`, `src/valueObject/tokenCount.ts`, and
    `src/valueObject/timestampMs.ts` — validate response metrics before
    calculations.
 7. `src/features/usage-status.ts`, `src/features/registry.ts`, `src/tui.ts`,
    and `src/state.ts` — expose and persist the `/essentials` feature toggle.
 8. `src/statusBar/usageStatus.test.ts` — tests response selection, timing,
-   generation-time rates, tones, and displayed metrics.
+   generation-time rates, health grades and window bounds, tones, and
+   displayed metrics.
 
 ---
 

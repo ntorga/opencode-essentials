@@ -1,17 +1,18 @@
 # opencode-essentials
 
-One plugin package, four entry points, several features. The server entry runs
+One plugin package, five entry points, several features. The server entry runs
 server features. The TUI entries manage features, handle permission requests,
-and render a shared status bar. The feature dialog lets the user switch all
-features off, change feature states, and tune idle timeouts, token ceilings,
-and the classifier model. The idle clock shows how long the open session has
-waited for input.
+wake you when the model loops, and render a shared status bar. The feature
+dialog lets the user switch all features off, change feature states, and tune
+idle timeouts, token ceilings, and the classifier model. The idle clock shows
+how long the open session has waited for input.
 
 ```
 src/
   server.ts    default export { id, server }   — feature host (server-side)
   tui.ts       default export { id, tui }      — toggle dialog (TUI-side)
   permission-assistant.tsx TUI pending-permission listener, notifier, audit logger
+  reasoning-loop-escalation.tsx TUI reasoning-loop suspect counter and human wake-up
   usage-status.tsx default export { id, tui }   — shared status bar (TUI-side)
   exec-wrapper-guard.ts    plugin wrapping shell-command permission checks
   state.ts     shared state file protocol      — written by tui, read by server
@@ -27,11 +28,13 @@ src/
     idle-auto-compactor.ts  feature 1
     token-ceiling-compactor.ts  feature 2
     sessionSummarizer.ts  shared session.summarize call
+    hostEventRejections.ts  shared rejected-host-id warn line
     idle-clock.ts  feature 3 (TUI-only, no server hooks)
     permission-assistant.ts  feature 4 row
-    usage-status.ts  feature 5 row
+    reasoning-loop-guard.ts  feature 5 (server hooks)
+    usage-status.ts  feature 6 row
     contextCeiling.ts  shared ceiling logic — turn usage, model window, clamp
-    permissionDecision.ts  per-permission questions, classifier request and response validation
+    permissionDecision.ts  classifier questions, shared request and response validation
     notificationText.ts  notify-send argument building
     requestDeadline.ts  shared client request deadline
 ```
@@ -96,14 +99,15 @@ the model. Default 384k, selectable from `/essentials`: 128k, 256k, 384k,
 ### Idle Session Clock
 
 Shows an idle counter at the start of the shared status bar while the open
-session waits for your input, for example `idle: 3m 12s | since 10:20 AM`.
+session waits for your input, for example `idle: 3m 12s`.
 It is a TUI-only feature: it renders inside the OpenCode TUI from the host's
 synced state, so it has no server hooks.
 
 - The clock anchors on the completion of the newest real assistant answer —
   the moment the model stopped answering. It counts up from there.
-- The `since` stamp shows the local start time, and adds the date only when
-  the wait began before today.
+- The `since` stamp appears only once the wait passes thirty minutes. It
+  shows the local start time, and adds the date only when the wait began
+  before today.
 - The auto-compactor's own summary turn does not re-anchor the clock, so an
   automatic compaction does not reset your displayed wait to zero.
 - The line is hidden while the session is `busy` or `retry`, while the
@@ -181,41 +185,109 @@ an answer reach this flow.
   and permission notifications. Disabling it leaves OpenCode's normal prompt
   unchanged.
 - The **Permission Assistant model** row changes the model without a restart.
-  Enter a `provider/model` ID. The row can restore Jev as the default.
+  Enter a `provider/model` ID. The row can restore Jev as the default. The
+  Reasoning Loop Guard reads its verdict from the same model choice.
 
 The model must support OpenRouter's Decisions API. Jev is a structured
 decision model. It is not a regular chat model.
 
+### Reasoning Loop Guard
+
+A reasoning model can stall inside its own thoughts: the same sentences,
+over and over, with no progress. The doom-loop guard in the Permission
+Assistant only sees repeated tool calls, so a spiral that never reaches a
+call runs on. This guard watches the reasoning stream instead.
+
+- A server feature subscribes to `message.part.updated` and keeps only the
+  last 256 reasoning words per response. It checks every 128 new words.
+- A suspect is the response's final 24-word phrase appearing at least three
+  times inside that window. Only a suspect pays a network call.
+- Essentials asks Jev the "stuck" question over the repeated phrase, through
+  the same Decisions API as permission decisions. At `0.80` or higher the
+  guard calls `session.abort` on the run, then `session.promptAsync` with a
+  correction that names the spiral and tells the model to decide the next
+  step or report the blocker. The correction shows in the transcript as a
+  user message.
+- What leaves the machine: the repeated phrase, capped at 600 characters, on
+  the OpenRouter key from the auth store. The guard does not send the rest
+  of the transcript, the project path, or the credential itself. This is
+  reasoning free-text — a new content class compared to the Permission
+  Assistant's command strings — so disable the row if your sessions reason
+  over material you keep local.
+- One suspect is not enough to act on. A lower score, a failed call, or a
+  missing credential leaves the response running. A verdict that arrives
+  after the response finished is dropped, so a natural end is never cancelled
+  after the fact.
+- The guard allows at most three interrupts in one user turn. Its own
+  correction is not counted as a fresh turn. A fourth confirmed spiral logs
+  `ReasoningLoopGuardGaveUp` and leaves the run to you.
+- Uncleared readings are capped too. A reading counts against the cap when
+  Jev abstains, when the call fails, or when no credential exists. Three such
+  readings on the same loop, and a fourth suspect still arrives: repetition
+  this persistent is a runaway whatever the classifier manages to say. The
+  guard stops chasing verdicts, cancels the run without Jev — the way the
+  doom-loop guard answers locally — and sends a correction that hands the
+  decision to the user. This logs `ReasoningLoopUnclearedCap`.
+- The human is asked directly. A TUI companion (`src/reasoning-loop-escalation.tsx`)
+  shares the same suspect watcher and counts suspects per response. The
+  fourth one raises a desktop notification and sound when TUI notifications
+  are enabled, a toast otherwise, and logs
+  `ReasoningLoopHumanEscalation`. Server-side interrupts keep working with
+  no TUI attached; only the human wake-up needs the terminal.
+- Each interrupt logs `ReasoningLoopInterrupted` with the probability.
+  Failures log under `ReasoningLoop*` keys.
+- The **Reasoning Loop Guard** row in `/essentials` controls the feature.
+  It shares the classifier credential and the classifier model choice with
+  the Permission Assistant; the default is Jev (`typesafe/jev-1.13`).
+
 ### Response Usage Status
 
-The shared status bar appears after a completed assistant response. It shows
-output tokens per second, thinking-inclusive throughput when the model
-reasons, and the start, first-text, and total latencies. When the session is
-idle, the idle counter appears first on the same padded line.
+The shared status bar shows the health verdict and the response metrics for
+the open session: for example `healthy (62/118 tok/s ~ 0.4s/11.3s)`. The
+verdict leads and brackets its evidence; without a verdict the numbers
+stand alone. When the session is idle, the idle counter appears first on
+the same padded line.
 
+- One window feeds both parts: the completed assistant responses of the
+  last five minutes or the newest eighteen, whichever boundary is reached
+  first. A fresh session shows metrics from its first finished response;
+  when the window empties, the metrics disappear rather than repeat stale
+  numbers.
+- The verdict grades every response in the window. A rate under 40 tok/s or
+  a start above 3s makes a response troubled; under 20 tok/s or above 10s
+  makes it poor. One third troubled renders `degraded` in yellow; one third
+  poor renders `underperforming` in red; otherwise `healthy` renders green.
+  The word needs at least three responses, so it stays off while the
+  window is still too short to read a habit.
 - The rate divides generated tokens by active generation time: the window
   from a response's first to its last part timestamp, minus tool execution.
   Streaming, thinking, argument writing, and queue gaps count; tool runs and
   permission waits do not. A response without measurable part timing falls
-  back to its full duration.
-- The pair `X/Y tok/s` reads output speed over total generation speed. X
-  counts text and tool-call tokens; Y adds reasoning tokens, over the same
-  active time. X never exceeds Y; the gap is how much of the turn's budget
-  went to thinking.
+  back to its full duration. The window pools its responses: total tokens
+  over total active time.
+- The pair `X/Y tok/s` answers "is the provider slow, or is the model just
+  thinking?" X is visible output speed — every token the host bills as output,
+  message text and tool-call payloads alike, because a tool call streams into
+  the transcript like prose. Y is total generation speed over the same active
+  time — X plus the hidden reasoning tokens. X never exceeds Y; the gap is the
+  thinking share. `20/200` is a healthy provider that spent the wait thinking;
+  `20/24` is a provider that genuinely crawls. A non-reasoning model shows one
+  number.
 - Known limit: `tokens.output` includes tool-call payloads, and a response
   that opens with a tool call hides that call's argument time before the
   first part timestamp. Such turns read slightly fast.
-- Latency shows as `latency: start/first text/total`, all measured from
-  assistant-message creation. Start is when the model began producing its
-  first part — reasoning or text. First text is when visible text began;
-  the gap between the two is thinking time. Total runs until completion and
-  includes tools and waits. When the model does not reason, start and first
-  text coincide and the bar collapses to `latency: first/total`. When part
-  timing is missing, it degrades to the total alone, muted.
+- The waits show as `~ start/first text`, averaged from assistant-message
+  creation. Start is when the model began producing its first part —
+  reasoning or text. First text is when visible text began; the gap between
+  the two is thinking time. When the model does not reason, the two
+  coincide and the group collapses to one value. When part timing is
+  missing, the group disappears and the rate stands alone. The old total
+  turn duration is gone: it mostly measured tool time, which the rate
+  window already excludes.
 - The token rate turns yellow below 40 tok/s and red below 20 tok/s. The
-  latency group takes its color from the start value: yellow above 3s, red
-  above 10s. A slow start is a provider problem; long thinking is not. Only
-  the numbers carry color; labels and units stay muted.
+  waits take their color from the start value: yellow above 3s, red above
+  10s. A slow start is a provider problem; long thinking is not. Only the
+  numbers carry color; brackets, separators, and units stay muted.
 - The status bar does not show the output token count or response cost.
 - The **Response Usage Status** row in `/essentials` controls the line.
 
@@ -258,6 +330,7 @@ Register the TUI entries in `tui.json`:
   "plugin": [
     "./src/tui.ts",
     "./src/permission-assistant.tsx",
+    "./src/reasoning-loop-escalation.tsx",
     [
       "./src/usage-status.tsx",
       {
