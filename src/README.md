@@ -262,8 +262,14 @@ the same padded line.
   numbers.
 - The verdict grades every response in the window. A rate under 40 tok/s or
   a start above 3s makes a response troubled; under 20 tok/s or above 10s
-  makes it poor. One third troubled renders `degraded` in yellow; one third
-  poor renders `underperforming` in red; otherwise `healthy` renders green.
+  makes it poor. The window then ranks: all responses good with averages of
+  at least 80 tok/s and a start within 1.5s render `flying` in light blue;
+  all good renders `healthy` in green; any trouble below the poor shares
+  renders `regular` in grey — not a problem, just not good; a third poor
+  renders `sluggish` in yellow; two thirds poor renders `slow` in red. The
+  share flips need at least two poor responses, so one outlier cannot drag
+  the verdict past `regular`. Troubled responses alone never lift the
+  verdict out of grey.
   The word needs at least three responses, so it stays off while the
   window is still too short to read a habit.
 - The rate divides generated tokens by active generation time: the window

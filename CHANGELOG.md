@@ -3,6 +3,7 @@
 ```log
 0.5.0 - 2026/09/25
 chore: bump package version to 0.5.0
+feat: rank health from flying to slow and color only the numbers
 feat: add the always action and audit the deferred classifier verdict
 docs: document the health verdict and the reasoning loop guard
 feat: cancel reasoning spirals with Jev's verdict

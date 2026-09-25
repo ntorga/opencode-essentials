@@ -28,25 +28,24 @@ status bar, and assist with permissions.
   Toggle it from `/essentials`.
   - *Problem it solves:* with several sessions open, you cannot tell which
     ones wait on you.
-- **Permission Assistant**: screens pending permission requests against
-  OpenRouter's Decisions API before they reach you. Jev is the default
-  classifier model; switch it from `/essentials`. Routine safe requests are
-  approved; anything the model cannot vouch for keeps the normal prompt open,
-  and a doom loop is answered with a correction instead of waking you.
-  Credentials come from `opencode auth login`.
+- **Permission Assistant**: a classifier model judges each pending permission
+  before it reaches you. Jev is the default; switch it from `/essentials`.
+  Routine safe requests are approved, anything the model cannot vouch for
+  keeps the normal prompt, and a doom loop is answered with a correction
+  instead of waking you.
   - *Problem it solves:* an unattended run stalls on every routine command
     that needs approval.
 - **Permission Notifications**: on Linux, raises a pending request as a
-  desktop notification with an "Allow once" action when the notification
-  server supports it. OpenCode's own prompt stays as a fallback.
+  desktop notification with "Allow once" and "Allow always" actions when the
+  notification server supports them. OpenCode's own prompt stays as a
+  fallback.
   - *Problem it solves:* a prompt waits unseen behind a backgrounded terminal.
-- **Reasoning Loop Guard**: watches the reasoning stream for text the model
-  repeats without progress. When a suspect tail appears, Jev judges it; at
-  0.80 confidence or higher the guard cancels the response and sends the
-  model a correction, the way the doom-loop guard handles repeated tool
-  calls. If three checks in a row fail to clear the same loop — abstentions
-  or unreachable checks — the guard stops chasing verdicts, cancels the run,
-  and wakes you with a notification. Toggle it from `/essentials`.
+- **Reasoning Loop Guard**: watches the reasoning stream for a model that
+  keeps rewriting the same thought without progress. Jev confirms the loop
+  and the guard cancels the run, feeding the model a correction instead of
+  another wasted turn. When its own checks keep failing to clear a loop, it
+  stops chasing verdicts and wakes you instead. Toggle it from
+  `/essentials`.
   - *Problem it solves:* a model that spirals mid-reasoning burns tokens and
     time until you notice and abort it yourself.
 - **Response Usage Status**: shows a provider health verdict, output speed,
@@ -61,9 +60,9 @@ status bar, and assist with permissions.
 - **Exec Wrapper Guard**: unwraps commands the agent hides behind wrappers
   like `timeout`, `env`, `mise exec`, or `bash -c` and checks the real inner
   command against your permission rules.
-  - *Problem it solves:* rules match the wrapper, not the command — so a
-    common `timeout 5 git diff` fails its allow rule until you register every
-    prefixed variant, and forbidden commands escape wrapped.
+  - *Problem it solves:* rules match the wrapper, not the command. A common
+    `timeout 5 git diff` fails its allow rule until you register every
+    prefixed variant, and wrapped commands escape the forbidden ones.
 
 Every Permission Assistant decision — who approved it and how the model
 scored it — is recorded in a local audit log you can mine to trim your allow
@@ -82,24 +81,26 @@ idle: 2m 38s · healthy (62/118 tok/s ~ 0.4s/11.3s)
   the wait passes thirty minutes it gains a `| since 4:03 PM` stamp, and the
   date joins the stamp when the wait began before today.
 - `healthy (…)` — the provider verdict, and the window of readings that
-  justify it. The verdict and the numbers share one window: the completed
-  responses of the last five minutes or the newest eighteen, whichever
-  boundary is reached first. Every response in it is graded — a rate under
-  40 tok/s or a start above 3s is troubled, under 20 or above 10s is poor.
-  One third troubled makes the word `degraded` (yellow), one third poor
-  makes it `underperforming` (red), and a clean window reads `healthy`
-  (green). The word needs at least three responses, so a fresh session shows
-  the numbers alone, with no brackets. Once the window empties, the metrics
-  disappear with it rather than repeat stale numbers.
-- `62/118 tok/s` — visible output speed over total generation speed. The
-  first number counts every token the host bills as output: message text and
-  tool-call payloads alike, because a tool call streams into your transcript
-  token by token just like prose. The second adds the model's hidden thinking
-  tokens over the same active time. The pair answers "is the provider slow,
-  or is the model just thinking?" — `20/200` means the provider streams fine
-  and the wait was reasoning, while `20/24` means the provider genuinely
-  crawls. The gap is the thinking share. On a non-reasoning model you see one
-  number. Yellow below 40, red below 20.
+  justify it. The window holds the completed responses of the last five
+  minutes or the newest eighteen, whichever boundary is reached first. A
+  response grades poor when its rate or its start lands in the red.
+
+  | Verdict | Color | Rule |
+  |---|---|---|
+  | `flying` | blue | all good above 80 tok/s |
+  | `healthy` | green | all good |
+  | `regular` | grey | not a problem, just not good |
+  | `sluggish` | yellow | a third grade poor |
+  | `slow` | red | two thirds grade poor |
+
+  The word needs three responses, so a fresh session shows the numbers
+  alone, with no brackets. Once the window empties, the metrics disappear
+  with it rather than repeat stale numbers.
+- `62/118 tok/s` — visible output speed against total generation speed,
+  which adds the model's hidden thinking tokens. The pair answers "is the
+  provider slow, or is the model just thinking?": `20/200` streams fine and
+  the wait was reasoning, while `20/24` genuinely crawls. A non-reasoning
+  model shows one number. Yellow below 40, red below 20.
 - `~ 0.4s/11.3s` — the average waits: until the model started answering, and
   until the first visible text. The color follows the start value: yellow
   above 3s, red above 10s. Only the numbers carry color.

@@ -231,8 +231,12 @@ completed assistant responses of the last five minutes or the newest
 eighteen, whichever boundary is reached first. The rate pools output tokens
 over active generation time, and reasoning turns pair it as
 `output/all-generation tok/s`. The verdict grades every response in the
-window against the rate and start-latency bars; a troubled third makes it
-`degraded`, a poor third `underperforming`, otherwise `healthy`. The themed
+window against the rate and start-latency bars and ranks the window from
+`flying` (blue, all good with fast averages) through `healthy` (green),
+`regular` (grey, any trouble short of the poor shares), and `sluggish`
+(yellow, a third poor) to `slow` (red, two thirds poor). Poor-share flips
+need two poor responses, so one outlier never reads worse than `regular`,
+and troubled responses alone keep the verdict grey. The themed
 status bar places the idle counter first when the session is idle, then the
 verdict leading its bracketed numbers. Slow values change color. It does not
 show the output token count or response cost.

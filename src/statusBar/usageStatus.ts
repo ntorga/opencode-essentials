@@ -14,8 +14,22 @@ const RESPONSE_WINDOW_MS = 5 * 60_000
 const RESPONSE_WINDOW_SIZE = 18
 const HEALTH_MIN_RESPONSES = 3
 const HEALTH_FLIP_SHARE = 1 / 3
+const HEALTH_SLOW_SHARE = 2 / 3
+const HEALTH_MIN_BAD_COUNT = 2
+const HEALTH_FLYING_TOKEN_RATE_TPS = 80
+const HEALTH_FLYING_START_MS = 1_500
 
-export type ResponseHealthLevel = "healthy" | "degraded" | "underperforming"
+// Five ranks, readable as a gradient: flying (blue) over healthy (green)
+// over regular (grey) over sluggish (yellow) over slow (red). Troubles that
+// never cross the poor bar keep the verdict grey: regular is not a problem,
+// just not good. The share flips need two poor responses so one outlier
+// cannot leave `regular`.
+export type ResponseHealthLevel =
+  | "flying"
+  | "healthy"
+  | "regular"
+  | "sluggish"
+  | "slow"
 
 export type ResponseUsageSegment = {
   value: string
@@ -137,9 +151,19 @@ function measureGenerationParts(
   return { firstActivityStartMs, firstTextStartMs, activeMs }
 }
 
+function splitDuration(durationMs: number): {
+  value: string
+  unit: string
+} {
+  if (durationMs < 1_000) {
+    return { value: `${Math.round(durationMs)}`, unit: "ms" }
+  }
+  return { value: (durationMs / 1_000).toFixed(1), unit: "s" }
+}
+
 function formatDuration(durationMs: number): string {
-  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`
-  return `${(durationMs / 1_000).toFixed(1)}s`
+  const split = splitDuration(durationMs)
+  return `${split.value}${split.unit}`
 }
 
 function resolveTokenRateTone(tokensPerSecond: number): StatusBarTone {
@@ -243,16 +267,39 @@ function gradeResponseTiming(response: ResponseTiming): ResponseGrade {
 
 // A verdict needs a streak to read: fewer than HEALTH_MIN_RESPONSES
 // completed responses in the window say nothing about the provider's habit.
+// Worst rank first: each following rule holds only while the worse ones are
+// false, so `regular` is the catch for any window with a troublemaker that
+// cannot flip a poor share, and the good-only tail below it can earn
+// `flying` on fast averages.
 function resolveHealthLevel(
   grades: readonly ResponseGrade[],
+  averages: {
+    averageTokensPerSecond: number
+    averageFirstActivityLatencyMs: number | undefined
+  },
 ): ResponseHealthLevel | undefined {
   if (grades.length < HEALTH_MIN_RESPONSES) return undefined
-  const troubledCount = grades.filter(
-    (grade) => grade === "troubled" || grade === "poor",
-  ).length
   const poorCount = grades.filter((grade) => grade === "poor").length
-  if (poorCount / grades.length >= HEALTH_FLIP_SHARE) return "underperforming"
-  if (troubledCount / grades.length >= HEALTH_FLIP_SHARE) return "degraded"
+  const badCount = grades.filter((grade) => grade !== "good").length
+  const share = (count: number) => count / grades.length
+  if (
+    poorCount >= HEALTH_MIN_BAD_COUNT &&
+    share(poorCount) >= HEALTH_SLOW_SHARE
+  )
+    return "slow"
+  if (
+    poorCount >= HEALTH_MIN_BAD_COUNT &&
+    share(poorCount) >= HEALTH_FLIP_SHARE
+  )
+    return "sluggish"
+  if (badCount > 0) return "regular"
+  const startMs = averages.averageFirstActivityLatencyMs
+  if (
+    averages.averageTokensPerSecond >= HEALTH_FLYING_TOKEN_RATE_TPS &&
+    startMs !== undefined &&
+    startMs <= HEALTH_FLYING_START_MS
+  )
+    return "flying"
   return "healthy"
 }
 
@@ -287,15 +334,19 @@ export function resolveResponseStatus(
     return undefined
   }
 
+  const averageFirstActivityLatencyMs = averageLatencyMs(
+    responseTimings,
+    (timing) => timing.firstActivityStartMs,
+  )
   return {
-    healthLevel: resolveHealthLevel(responseTimings.map(gradeResponseTiming)),
+    healthLevel: resolveHealthLevel(responseTimings.map(gradeResponseTiming), {
+      averageTokensPerSecond,
+      averageFirstActivityLatencyMs,
+    }),
     averageTokensPerSecond,
     averageGenerationTokensPerSecond,
     includesReasoning: totalReasoningTokens > 0,
-    averageFirstActivityLatencyMs: averageLatencyMs(
-      responseTimings,
-      (timing) => timing.firstActivityStartMs,
-    ),
+    averageFirstActivityLatencyMs,
     averageFirstTextLatencyMs: averageLatencyMs(
       responseTimings,
       (timing) => timing.firstTextStartMs,
@@ -303,13 +354,19 @@ export function resolveResponseStatus(
   }
 }
 
+const HEALTH_SEGMENT_TONES: Record<ResponseHealthLevel, StatusBarTone> = {
+  flying: "info",
+  healthy: "good",
+  regular: "muted",
+  sluggish: "warning",
+  slow: "error",
+}
+
 function healthSegment(
   level: ResponseHealthLevel | undefined,
 ): ResponseUsageSegment | undefined {
-  if (level === "underperforming") return { value: level, tone: "error" }
-  if (level === "degraded") return { value: level, tone: "warning" }
-  if (level === "healthy") return { value: level, tone: "good" }
-  return undefined
+  if (level === undefined) return undefined
+  return { value: level, tone: HEALTH_SEGMENT_TONES[level] }
 }
 
 // The line reads `healthy (62/118 tok/s ~ 0.4s/11.3s)`: the verdict leads
@@ -354,12 +411,17 @@ export function formatResponseStatus(
 
   if (waitsMs.length === 0) return segments
   const toneStartMs = activityMs ?? textMs
-  const waitsSegment: ResponseUsageSegment = {
-    value: waitsMs.map((waitMs) => formatDuration(waitMs)).join("/"),
-    tone: toneStartMs === undefined ? "muted" : resolveLatencyTone(toneStartMs),
-    separator: " ~ ",
-  }
-  if (bracketed) waitsSegment.suffix = ")"
-  segments.push(waitsSegment)
+  const waitsTone =
+    toneStartMs === undefined ? "muted" : resolveLatencyTone(toneStartMs)
+  waitsMs.forEach((waitMs, index) => {
+    const wait = splitDuration(waitMs)
+    const closesBracket = bracketed && index === waitsMs.length - 1
+    segments.push({
+      value: wait.value,
+      tone: waitsTone,
+      suffix: closesBracket ? `${wait.unit})` : wait.unit,
+      separator: index === 0 ? " ~ " : "/",
+    })
+  })
   return segments
 }
