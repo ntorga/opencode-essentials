@@ -87,6 +87,31 @@ describe("parseEssentialsDocument", () => {
     )
   })
 
+  it("reads a stored auto-allow reply mode", () => {
+    const config = parseEssentialsDocument({
+      version: ESSENTIALS_CONFIG_VERSION,
+      settings: { [permissionAssistantId]: { autoAllowReply: "once" } },
+    })
+    assert.deepEqual(
+      { ...config?.autoAllowReplies },
+      { [permissionAssistantId]: "once" },
+    )
+  })
+
+  it("keeps an entry that stores only the auto-allow reply", () => {
+    const config = parseEssentialsDocument({
+      version: ESSENTIALS_CONFIG_VERSION,
+      settings: { [permissionAssistantId]: { autoAllowReply: "always" } },
+    })
+    assert.deepEqual(
+      { ...config?.autoAllowReplies },
+      {
+        [permissionAssistantId]: "always",
+      },
+    )
+    assert.deepEqual({ ...config?.models }, {})
+  })
+
   it("defaults enabled, features, and settings when absent", () => {
     const config = parseEssentialsDocument({
       version: ESSENTIALS_CONFIG_VERSION,
@@ -140,6 +165,8 @@ describe("parseEssentialsDocument", () => {
     { [ceilingId]: { ceilingTokens: 2000001 } },
     { [ceilingId]: { ceilingTokens: "384000" } },
     { [permissionAssistantId]: { model: "not-a-provider-model" } },
+    { [permissionAssistantId]: { autoAllowReply: "reject" } },
+    { [permissionAssistantId]: { autoAllowReply: true } },
   ]) {
     it(`rejects the document over settings ${JSON.stringify(broken)}`, () => {
       assert.equal(
@@ -187,6 +214,21 @@ describe("serializeEssentialsDocument", () => {
       "idle-auto-compactor": { idleTimeoutMs: 900000, ceilingTokens: 256000 },
       "token-ceiling-compactor": { ceilingTokens: 1000000 },
       "permission-assistant": { model: "qwen/qwen3.8-flash" },
+    })
+    assert.deepEqual(parseEssentialsDocument(serialized), config)
+  })
+
+  it("round-trips the auto-allow reply alongside the model", () => {
+    const config = newDefaultEssentialsConfig()
+    config.models[permissionAssistantId] =
+      newOpenRouterModelId("typesafe/jev-1.13")
+    config.autoAllowReplies[permissionAssistantId] = "once"
+    const serialized = JSON.parse(serializeEssentialsDocument(config))
+    assert.deepEqual(serialized.settings, {
+      [permissionAssistantId]: {
+        model: "typesafe/jev-1.13",
+        autoAllowReply: "once",
+      },
     })
     assert.deepEqual(parseEssentialsDocument(serialized), config)
   })

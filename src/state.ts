@@ -21,6 +21,7 @@ import type { ContextTokens } from "./valueObject/contextTokens.ts"
 import type { FeatureId } from "./valueObject/featureId.ts"
 import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import type { PermissionReplyMode } from "./valueObject/permissionReplyMode.ts"
 
 export type { EssentialsConfig } from "./documents/essentialsDocument.ts"
 
@@ -247,5 +248,28 @@ export function writeFeatureModel(
 export function clearFeatureModel(featureId: FeatureId) {
   mutateEssentialsConfig((config) => {
     delete config.models[featureId]
+  })
+}
+
+export function resolveEffectiveAutoAllowReply(
+  config: EssentialsConfig,
+  featureId: FeatureId,
+  fallbackMode: PermissionReplyMode,
+): PermissionReplyMode {
+  return config.autoAllowReplies[featureId] ?? fallbackMode
+}
+
+export function writeAutoAllowReply(
+  featureId: FeatureId,
+  mode: PermissionReplyMode,
+) {
+  mutateEssentialsConfig((config) => {
+    config.autoAllowReplies[featureId] = mode
+  })
+}
+
+export function clearAutoAllowReply(featureId: FeatureId) {
+  mutateEssentialsConfig((config) => {
+    delete config.autoAllowReplies[featureId]
   })
 }

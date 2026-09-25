@@ -110,7 +110,7 @@ describe("essentials tui companion", () => {
     assert.equal(fake.registeredCommands[0]?.slashName, "essentials")
   })
 
-  it("lists global, feature, model, timeout, and ceiling rows", async () => {
+  it("lists global, feature, model, auto-allow, timeout, and ceiling rows", async () => {
     const fake = fakeTuiApi()
     await openMainDialog(fake)
 
@@ -128,6 +128,7 @@ describe("essentials tui companion", () => {
         "reasoning-loop-guard",
         "usage-status",
         "$classifier-model",
+        "$auto-allow-reply",
         "$timeout:idle-auto-compactor",
         "$ceiling:token-ceiling-compactor",
       ],
@@ -143,9 +144,46 @@ describe("essentials tui companion", () => {
         "enabled",
         "enabled",
         "typesafe/jev-1.13 (default)",
+        "always (default)",
         "30 min (default)",
         "384k (default)",
       ],
+    )
+  })
+
+  it("switches the auto-allow reply and can restore the always default", async () => {
+    const fake = fakeTuiApi()
+    await openMainDialog(fake)
+
+    fake.openedDialogs[0]?.onSelect({ value: "$auto-allow-reply" })
+    assert.deepEqual(
+      fake.openedDialogs[1]?.options.map((option) => option.value),
+      ["always", "once"],
+    )
+    fake.openedDialogs[1]?.onSelect({ value: "once" })
+
+    assert.deepEqual(
+      { ...readEssentialsConfig().config.autoAllowReplies },
+      { "permission-assistant": "once" },
+    )
+    assert.equal(
+      findDialogOption(fake.openedDialogs.at(-1), "$auto-allow-reply")?.footer,
+      "once (stored)",
+    )
+
+    fake.openedDialogs.at(-1)?.onSelect({ value: "$auto-allow-reply" })
+    assert.deepEqual(
+      fake.openedDialogs.at(-1)?.options.map((option) => option.value),
+      ["always", "once", "$clear-auto-allow-reply"],
+    )
+    fake.openedDialogs.at(-1)?.onSelect({
+      value: "$clear-auto-allow-reply",
+    })
+
+    assert.deepEqual({ ...readEssentialsConfig().config.autoAllowReplies }, {})
+    assert.equal(
+      findDialogOption(fake.openedDialogs.at(-1), "$auto-allow-reply")?.footer,
+      "always (default)",
     )
   })
 

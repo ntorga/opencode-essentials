@@ -9,14 +9,17 @@ import { DEFAULT_CLASSIFIER_MODEL } from "./features/permissionDecision.ts"
 import { FEATURES } from "./features/registry.ts"
 import { sanitizeText } from "./log.ts"
 import {
+  clearAutoAllowReply,
   clearFeatureModel,
   clearIdleTimeoutMs,
   clearTokenCeiling,
   isFeatureChosen,
   readEssentialsConfig,
+  resolveEffectiveAutoAllowReply,
   resolveEffectiveIdleTimeoutMs,
   resolveEffectiveModel,
   resolveEffectiveTokenCeiling,
+  writeAutoAllowReply,
   writeFeatureEnabled,
   writeFeatureModel,
   writeGlobalEnabled,
@@ -40,6 +43,11 @@ import {
 } from "./valueObject/idleTimeoutMs.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 import { newOpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import type { PermissionReplyMode } from "./valueObject/permissionReplyMode.ts"
+import {
+  DEFAULT_AUTO_ALLOW_REPLY,
+  newPermissionReplyMode,
+} from "./valueObject/permissionReplyMode.ts"
 
 const GLOBAL_ROW_VALUE = "$global"
 const TIMEOUT_ROW_PREFIX = "$timeout:"
@@ -49,6 +57,21 @@ const TIMEOUT_PRESET_MINUTES = [5, 15, 30, 60]
 const CLASSIFIER_MODEL_ROW_VALUE = "$classifier-model"
 const CUSTOM_CLASSIFIER_MODEL_VALUE = "$custom-classifier-model"
 const CLEAR_CLASSIFIER_MODEL_VALUE = "$clear-classifier-model"
+const AUTO_ALLOW_REPLY_ROW_VALUE = "$auto-allow-reply"
+const CLEAR_AUTO_ALLOW_REPLY_VALUE = "$clear-auto-allow-reply"
+const AUTO_ALLOW_REPLY_CHOICES: ReadonlyArray<{
+  mode: PermissionReplyMode
+  title: string
+}> = [
+  {
+    mode: "always",
+    title: "Always allow a matching request",
+  },
+  {
+    mode: "once",
+    title: "Allow once, ask again next time",
+  },
+]
 
 const CEILING_ROW_PREFIX = "$ceiling:"
 const CEILING_CUSTOM_VALUE = "$custom-ceiling"
@@ -165,6 +188,19 @@ function showFeatureDialog(api: TuiPluginApi) {
       DEFAULT_CLASSIFIER_MODEL,
     )} (${storedClassifierModel ? "stored" : "default"})`,
   }
+  const storedAutoAllowReply =
+    config.autoAllowReplies[permissionAssistantFeature.id]
+  const autoAllowReplyRow = {
+    title: "Permission Assistant auto-allow reply",
+    value: AUTO_ALLOW_REPLY_ROW_VALUE,
+    description:
+      "How a safe Jev verdict answers the request. Always saves a rule so matching requests stop asking; once answers only this request.",
+    footer: `${resolveEffectiveAutoAllowReply(
+      config,
+      permissionAssistantFeature.id,
+      DEFAULT_AUTO_ALLOW_REPLY,
+    )} (${storedAutoAllowReply === undefined ? "default" : "stored"})`,
+  }
   const timeoutRows = FEATURES.filter(
     (feature) => feature.hasAdjustableIdleTimeout,
   ).map((feature) => {
@@ -207,6 +243,7 @@ function showFeatureDialog(api: TuiPluginApi) {
         globalRow,
         ...featureRows,
         classifierModelRow,
+        autoAllowReplyRow,
         ...timeoutRows,
         ...ceilingRows,
       ],
@@ -310,6 +347,72 @@ function showClassifierModelDialog(api: TuiPluginApi) {
   )
 }
 
+function saveAutoAllowReply(api: TuiPluginApi, mode: PermissionReplyMode) {
+  try {
+    writeAutoAllowReply(permissionAssistantFeature.id, mode)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "success",
+    message: `Permission Assistant auto-allow reply is ${mode}`,
+  })
+  showFeatureDialog(api)
+}
+
+function clearStoredAutoAllowReply(api: TuiPluginApi) {
+  try {
+    clearAutoAllowReply(permissionAssistantFeature.id)
+  } catch (failure) {
+    reportWriteFailure(api, failure)
+    return
+  }
+  api.ui.toast({
+    variant: "info",
+    message: `Permission Assistant auto-allow reply is back to ${DEFAULT_AUTO_ALLOW_REPLY}`,
+  })
+  showFeatureDialog(api)
+}
+
+function pickAutoAllowReply(api: TuiPluginApi, rowValue: unknown) {
+  if (rowValue === CLEAR_AUTO_ALLOW_REPLY_VALUE) {
+    clearStoredAutoAllowReply(api)
+    return
+  }
+  const mode = newPermissionReplyMode(rowValue)
+  if (!mode) return
+  saveAutoAllowReply(api, mode)
+}
+
+function showAutoAllowReplyDialog(api: TuiPluginApi) {
+  const storedMode =
+    readEssentialsConfig().config.autoAllowReplies[
+      permissionAssistantFeature.id
+    ]
+  const options: Array<{ title: string; value: unknown; footer: string }> =
+    AUTO_ALLOW_REPLY_CHOICES.map((choice) => ({
+      title: choice.title,
+      value: choice.mode,
+      footer: choice.mode === storedMode ? "stored" : "",
+    }))
+  if (storedMode !== undefined) {
+    options.push({
+      title: `Back to default (${DEFAULT_AUTO_ALLOW_REPLY})`,
+      value: CLEAR_AUTO_ALLOW_REPLY_VALUE,
+      footer: "",
+    })
+  }
+  api.ui.dialog.replace(() =>
+    api.ui.DialogSelect({
+      title: "Permission Assistant: auto-allow reply",
+      options,
+      onSelect: (selectedOption) =>
+        pickAutoAllowReply(api, selectedOption.value),
+    }),
+  )
+}
+
 function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
   if (rowValue === GLOBAL_ROW_VALUE) {
     toggleGlobalEnabled(api)
@@ -317,6 +420,10 @@ function selectDialogRow(api: TuiPluginApi, rowValue: unknown) {
   }
   if (rowValue === CLASSIFIER_MODEL_ROW_VALUE) {
     showClassifierModelDialog(api)
+    return
+  }
+  if (rowValue === AUTO_ALLOW_REPLY_ROW_VALUE) {
+    showAutoAllowReplyDialog(api)
     return
   }
   if (typeof rowValue === "string" && rowValue.startsWith(TIMEOUT_ROW_PREFIX)) {

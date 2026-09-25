@@ -3,6 +3,7 @@
 ```log
 0.5.0 - 2026/09/25
 chore: bump package version to 0.5.0
+feat: remember safe file edits so Jev stops approving every one
 feat: judge health by number colors and median waits
 feat: rank health from flying to slow and color only the numbers
 feat: add the always action and audit the deferred classifier verdict

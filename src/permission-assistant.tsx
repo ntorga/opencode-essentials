@@ -4,6 +4,7 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
+import { newAutoAllowReply } from "./features/autoAllowPolicy.ts"
 import { buildPermissionNotificationArguments } from "./features/notificationText.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
 import {
@@ -25,10 +26,12 @@ import { readOpenRouterApiKey } from "./openRouterAuth.ts"
 import {
   isFeatureEnabled,
   readEssentialsConfig,
+  resolveEffectiveAutoAllowReply,
   resolveEffectiveModel,
 } from "./state.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 import type { PermissionName } from "./valueObject/permissionName.ts"
+import { DEFAULT_AUTO_ALLOW_REPLY } from "./valueObject/permissionReplyMode.ts"
 import type { PermissionRequest } from "./valueObject/permissionRequest.ts"
 import { newPermissionRequest } from "./valueObject/permissionRequest.ts"
 import type { PermissionRequestId } from "./valueObject/permissionRequestId.ts"
@@ -372,13 +375,19 @@ async function answerOrNotifyPermission(
     return
   }
 
-  if (!readPermissionAssistantConfig(api)) return
+  const config = readPermissionAssistantConfig(api)
+  if (!config) return
+  const preferredMode = resolveEffectiveAutoAllowReply(
+    config,
+    permissionAssistantFeature.id,
+    DEFAULT_AUTO_ALLOW_REPLY,
+  )
   const wasAllowed = await replyPermission(
     api,
     pendingPermissions,
     permission,
     "classifier",
-    "once",
+    newAutoAllowReply(permission.request.permission, preferredMode),
   )
   if (wasAllowed || !isCurrentPermission(pendingPermissions, permission)) return
   showPermissionNotification(api, pendingPermissions, permission)

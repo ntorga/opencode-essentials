@@ -8,6 +8,8 @@ import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
 import { newIdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
 import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
 import { newOpenRouterModelId } from "../valueObject/openRouterModelId.ts"
+import type { PermissionReplyMode } from "../valueObject/permissionReplyMode.ts"
+import { newPermissionReplyMode } from "../valueObject/permissionReplyMode.ts"
 import { isRecord } from "../valueObject/util.ts"
 import type { ParsedDocument } from "./util.ts"
 import { newParsedDocument } from "./util.ts"
@@ -18,6 +20,7 @@ const RESERVED_DOCUMENT_KEYS = ["version", "enabled", "features", "settings"]
 const IDLE_TIMEOUT_KEY = "idleTimeoutMs"
 const CEILING_TOKENS_KEY = "ceilingTokens"
 const CLASSIFIER_MODEL_KEY = "model"
+const AUTO_ALLOW_REPLY_KEY = "autoAllowReply"
 
 export type FeatureTimeouts = Partial<Record<FeatureId, IdleTimeoutMs>>
 
@@ -25,12 +28,17 @@ export type FeatureCeilings = Partial<Record<FeatureId, ContextTokens>>
 
 export type FeatureModels = Partial<Record<FeatureId, OpenRouterModelId>>
 
+export type FeatureAutoAllowReplies = Partial<
+  Record<FeatureId, PermissionReplyMode>
+>
+
 type EssentialsFields = {
   isEnabled: boolean
   states: FeatureStates
   timeouts: FeatureTimeouts
   ceilings: FeatureCeilings
   models: FeatureModels
+  autoAllowReplies: FeatureAutoAllowReplies
 }
 
 export type EssentialsConfig = ParsedDocument<EssentialsFields, "essentials">
@@ -42,6 +50,7 @@ export function newDefaultEssentialsConfig(): EssentialsConfig {
     timeouts: Object.create(null) as FeatureTimeouts,
     ceilings: Object.create(null) as FeatureCeilings,
     models: Object.create(null) as FeatureModels,
+    autoAllowReplies: Object.create(null) as FeatureAutoAllowReplies,
   })
 }
 
@@ -55,12 +64,16 @@ function newFeatureSettings(rawSettings: unknown):
       timeouts: FeatureTimeouts
       ceilings: FeatureCeilings
       models: FeatureModels
+      autoAllowReplies: FeatureAutoAllowReplies
     }
   | undefined {
   const timeouts = Object.create(null) as FeatureTimeouts
   const ceilings = Object.create(null) as FeatureCeilings
   const models = Object.create(null) as FeatureModels
-  if (rawSettings === undefined) return { timeouts, ceilings, models }
+  const autoAllowReplies = Object.create(null) as FeatureAutoAllowReplies
+  if (rawSettings === undefined) {
+    return { timeouts, ceilings, models, autoAllowReplies }
+  }
   if (!isRecord(rawSettings)) return undefined
   for (const [rawKey, rawEntry] of Object.entries(rawSettings)) {
     const featureId = newFeatureId(rawKey)
@@ -68,10 +81,12 @@ function newFeatureSettings(rawSettings: unknown):
     const rawTimeout = rawEntry[IDLE_TIMEOUT_KEY]
     const rawCeiling = rawEntry[CEILING_TOKENS_KEY]
     const rawModel = rawEntry[CLASSIFIER_MODEL_KEY]
+    const rawAutoAllowReply = rawEntry[AUTO_ALLOW_REPLY_KEY]
     if (
       rawTimeout === undefined &&
       rawCeiling === undefined &&
-      rawModel === undefined
+      rawModel === undefined &&
+      rawAutoAllowReply === undefined
     ) {
       return undefined
     }
@@ -90,8 +105,13 @@ function newFeatureSettings(rawSettings: unknown):
       if (model === undefined) return undefined
       models[featureId] = model
     }
+    if (rawAutoAllowReply !== undefined) {
+      const replyMode = newPermissionReplyMode(rawAutoAllowReply)
+      if (replyMode === undefined) return undefined
+      autoAllowReplies[featureId] = replyMode
+    }
   }
-  return { timeouts, ceilings, models }
+  return { timeouts, ceilings, models, autoAllowReplies }
 }
 
 function newVersionedConfig(
@@ -112,6 +132,7 @@ function newVersionedConfig(
   config.timeouts = settings.timeouts
   config.ceilings = settings.ceilings
   config.models = settings.models
+  config.autoAllowReplies = settings.autoAllowReplies
   return config
 }
 
@@ -144,6 +165,7 @@ export function serializeEssentialsDocument(config: EssentialsConfig): string {
       idleTimeoutMs?: number
       ceilingTokens?: number
       model?: OpenRouterModelId
+      autoAllowReply?: PermissionReplyMode
     }
   > = {}
   for (const [featureId, timeout] of Object.entries(config.timeouts)) {
@@ -162,6 +184,15 @@ export function serializeEssentialsDocument(config: EssentialsConfig): string {
     settings[featureId] = {
       ...settings[featureId],
       [CLASSIFIER_MODEL_KEY]: model,
+    }
+  }
+  for (const [featureId, replyMode] of Object.entries(
+    config.autoAllowReplies,
+  )) {
+    if (replyMode === undefined) continue
+    settings[featureId] = {
+      ...settings[featureId],
+      [AUTO_ALLOW_REPLY_KEY]: replyMode,
     }
   }
   return JSON.stringify(

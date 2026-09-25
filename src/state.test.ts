@@ -12,13 +12,16 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import {
+  clearAutoAllowReply,
   clearFeatureModel,
   clearIdleTimeoutMs,
   isFeatureEnabled,
   readEssentialsConfig,
+  resolveEffectiveAutoAllowReply,
   resolveEffectiveIdleTimeoutMs,
   resolveEffectiveModel,
   resolveEssentialsStatePath,
+  writeAutoAllowReply,
   writeFeatureEnabled,
   writeFeatureModel,
   writeGlobalEnabled,
@@ -30,6 +33,7 @@ import type { IdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import { newIdleTimeoutMs } from "./valueObject/idleTimeoutMs.ts"
 import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 import { newOpenRouterModelId } from "./valueObject/openRouterModelId.ts"
+import type { PermissionReplyMode } from "./valueObject/permissionReplyMode.ts"
 
 // Note: Setup/teardown are intentionally inline — test independence
 // requires each file to own its preconditions, even if it duplicates code.
@@ -156,6 +160,33 @@ describe("essentials config file", () => {
     assert.equal(
       resolveEffectiveModel(config, assistantId, fallbackModel),
       fallbackModel,
+    )
+  })
+
+  it("uses a stored auto-allow reply and clears it to the fallback", () => {
+    const assistantId = trustedFeatureId("permission-assistant")
+    const fallbackMode: PermissionReplyMode = "always"
+    writeAutoAllowReply(assistantId, "once")
+
+    let config = readEssentialsConfig().config
+    assert.equal(
+      resolveEffectiveAutoAllowReply(config, assistantId, fallbackMode),
+      "once",
+    )
+    assert.equal(
+      resolveEffectiveAutoAllowReply(
+        config,
+        trustedFeatureId("other"),
+        fallbackMode,
+      ),
+      fallbackMode,
+    )
+
+    clearAutoAllowReply(assistantId)
+    config = readEssentialsConfig().config
+    assert.equal(
+      resolveEffectiveAutoAllowReply(config, assistantId, fallbackMode),
+      fallbackMode,
     )
   })
 

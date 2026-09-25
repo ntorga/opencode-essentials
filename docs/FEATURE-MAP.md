@@ -118,10 +118,13 @@ assistant rejects it with a correction message that tells the agent it is
 repeating itself. The permission assistant reads
 OpenRouter credentials from OpenCode's auth store, with an environment-variable
 fallback. `/essentials` can change the classifier model while OpenCode is
-running. A safe probability of 0.80 or higher replies once. Other results keep
-the prompt open and trigger a desktop notification. On Linux the notification
-carries **Allow once** and **Allow always** buttons; it does not depend on the
-TUI attention settings.
+running. At a safe probability of 0.80 or higher the assistant answers the
+request: a file edit is answered `always` by default so later edits stop
+consulting Jev, while Bash and external-directory requests are answered `once`
+because an `always` rule would widen past the command or path Jev judged. The
+auto-allow reply is a `/essentials` row. Other results keep the prompt open and
+trigger a desktop notification. On Linux the notification carries **Allow once**
+and **Allow always** buttons; it does not depend on the TUI attention settings.
 
 Every decision on a permission request is audited to `permission-audit.log` in
 the OpenCode data directory. A JSON line records each Jev classification that
@@ -151,28 +154,35 @@ the allow list.
    request's permission, sends its patterns to the Decisions API, and
    validates the returned verdict: safe probability plus an optional
    explanation from the answering model.
-6. `src/features/permissionAudit.ts` — appends the classification and decision
+6. `src/features/autoAllowPolicy.ts` and
+   `src/valueObject/permissionReplyMode.ts` — decide the reply for a safe
+   verdict. Only the edit class may answer `always`; every other permission
+   answers `once`. The stored preference sets the edit default.
+7. `src/features/permissionAudit.ts` — appends the classification and decision
    lines to the audit log, sanitizing and length-capping each pattern and
    explanation.
-7. `src/features/notificationText.ts` — places request text after the
+8. `src/features/notificationText.ts` — places request text after the
    end-of-options marker and escapes markup characters before passing it as
    the notification body.
-8. `src/permission-assistant.tsx` — replies `once` at 0.80 or higher, or
-   `reject` with a correction message for a doom loop. Otherwise it keeps the
-   prompt open and uses Linux `notify-send`, falling back to the gated TUI
-   attention API when that spawn fails. The desktop buttons reply `once` or
-   `always`.
-9. `src/features/permission-assistant.ts`, `src/features/registry.ts`,
-   `src/tui.ts`, `src/state.ts`, and
-   `src/documents/essentialsDocument.ts` — expose the feature toggle and
-   persist a model selected in `/essentials`.
-10. `src/openRouterAuth.test.ts`, `src/features/permissionDecision.test.ts`,
+9. `src/permission-assistant.tsx` — answers a safe verdict through the
+   auto-allow policy, or replies `reject` with a correction message for a doom
+   loop. Otherwise it keeps the prompt open and uses Linux `notify-send`,
+   falling back to the gated TUI attention API when that spawn fails. The
+   desktop buttons reply `once` or `always`.
+10. `src/features/permission-assistant.ts`, `src/features/registry.ts`,
+    `src/tui.ts`, `src/state.ts`, and
+    `src/documents/essentialsDocument.ts` — expose the feature toggle, the
+    auto-allow reply row, and persist a model or reply mode chosen in
+    `/essentials`.
+11. `src/openRouterAuth.test.ts`, `src/features/permissionDecision.test.ts`,
+    `src/features/autoAllowPolicy.test.ts`,
     `src/features/permissionAudit.test.ts`,
     `src/valueObject/permissionRequest.test.ts`,
+    `src/valueObject/permissionReplyMode.test.ts`,
     `src/valueObject/openRouterApiKey.test.ts`, and
-    `src/valueObject/openRouterModelId.test.ts` — test credential, model, and
-    audit-line validation. `src/features/notificationText.test.ts` checks
-    notification text safety.
+    `src/valueObject/openRouterModelId.test.ts` — test credential, model,
+    reply-mode, and audit-line validation.
+    `src/features/notificationText.test.ts` checks notification text safety.
 
 OpenCode v1 creates the pending request before the TUI receives it. The
 permission prompt may appear while Jev classifies it. The notification button

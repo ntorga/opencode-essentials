@@ -4,8 +4,8 @@ One plugin package, five entry points, several features. The server entry runs
 server features. The TUI entries manage features, handle permission requests,
 wake you when the model loops, and render a shared status bar. The feature
 dialog lets the user switch all features off, change feature states, and tune
-idle timeouts, token ceilings, and the classifier model. The idle clock shows
-how long the open session has waited for input.
+idle timeouts, token ceilings, the classifier model, and the auto-allow reply.
+The idle clock shows how long the open session has waited for input.
 
 ```
 src/
@@ -35,6 +35,7 @@ src/
     usage-status.ts  feature 6 row
     contextCeiling.ts  shared ceiling logic — turn usage, model window, clamp
     permissionDecision.ts  classifier questions, shared request and response validation
+    autoAllowPolicy.ts  chooses always (edits only) or once for a safe verdict
     notificationText.ts  notify-send argument building
     requestDeadline.ts  shared client request deadline
 ```
@@ -141,11 +142,21 @@ an answer reach this flow.
   rejects the repeated call and sends the agent a correction that names the
   loop and tells it to change approach or report the blocker. The human
   prompt stays as the fallback when that reply fails.
-- Essentials reads the model's safe probability. A value of `0.80` or higher
-  replies `once` through the OpenCode client. This reply does not save a
-  permission rule.
-- A lower score, a missing credential, an invalid response, or a network error
-  leaves the normal permission prompt open.
+- Essentials reads the model's safe probability. At `0.80` or higher the
+  assistant answers the request. A lower score, a missing credential, an
+  invalid response, or a network error leaves the normal prompt open.
+- When the assistant answers a safe **file edit**, it replies `always` by
+  default. OpenCode then saves an edit rule, so later file edits stop
+  consulting Jev and stop interrupting you. The **Permission Assistant
+  auto-allow reply** row in `/essentials` switches this back to `once` if you
+  would rather confirm each edit.
+- The assistant never replies `always` to a **Bash** or **external-directory**
+  request. OpenCode saves an `always` reply under the pattern the tool asks
+  for, not the exact command. For Bash that pattern is the command prefix plus
+  a wildcard — one approved `rm file` would save `rm *` and let a later
+  `rm -rf /` through with no check. An external directory would widen from one
+  file to its whole folder, outside the workspace. Those two answer `once`, so
+  Jev judges every one.
 - OpenCode v1 publishes a pending request before the TUI sees it. The prompt
   can appear briefly while Jev classifies the request.
 - On Linux, `notify-send` creates a freedesktop.org notification with
@@ -194,6 +205,10 @@ an answer reach this flow.
 - The **Permission Assistant model** row changes the model without a restart.
   Enter a `provider/model` ID. The row can restore Jev as the default. The
   Reasoning Loop Guard reads its verdict from the same model choice.
+- The **Permission Assistant auto-allow reply** row chooses `always` or `once`
+  for safe file edits without a restart. It applies to edits only; Bash and
+  external-directory requests always answer `once`. The row can restore the
+  `always` default.
 
 The model must support OpenRouter's Decisions API. Jev is a structured
 decision model. It is not a regular chat model.
@@ -401,6 +416,12 @@ ID. Only Bash permission patterns that remain at `ask` are sent to the
 configured model. The request has an eight-second timeout. A missing
 credential, network error, or invalid response leaves the prompt open.
 
+The auto-allow reply is stored at `settings.permission-assistant.autoAllowReply`
+in `essentials.json`. The default is `always`. It chooses how the assistant
+answers a safe **file edit**: `always` saves an edit rule, `once` answers only
+that request. The value never raises a Bash or external-directory request above
+`once`, whatever the setting says.
+
 `ceilingTokens` is the context size, in tokens, at which the ceiling
 compactor runs. A missing value falls back to the default silently. A
 present-but-invalid value — non-integer, zero, negative, or above
@@ -435,7 +456,10 @@ State file (`$XDG_DATA_HOME/opencode/essentials.json`), current shape:
   "settings": {
     "idle-auto-compactor": { "idleTimeoutMs": 1800000 },
     "token-ceiling-compactor": { "ceilingTokens": 384000 },
-    "permission-assistant": { "model": "typesafe/jev-1.13" }
+    "permission-assistant": {
+      "model": "typesafe/jev-1.13",
+      "autoAllowReply": "always"
+    }
   }
 }
 ```
@@ -518,16 +542,22 @@ npm run typecheck # tsc --noEmit
    true elapsed time.
 10. Run `opencode auth login` and set `permission.bash` to `ask` in
     `opencode.json`. Ask the agent to run a safe Bash command. A Jev
-    probability of at least `0.80` replies once. A lower or invalid result
-    leaves the prompt open.
-11. Type `/essentials`, open **Permission Assistant model**, choose a custom
+    probability of at least `0.80` answers it with `once`; the next Bash
+    command consults Jev again. A lower or invalid result leaves the prompt
+    open.
+11. Set `permission.edit` to `ask`. Let a safe file edit pass. Check that the
+    next edit reaches OpenCode without a Jev call: the first edit saved an
+    `always` rule. Type `/essentials`, open **Permission Assistant auto-allow
+    reply**, choose `once`, and make a new edit in a fresh session: it now
+    consults Jev each time. Restore the `always` default.
+12. Type `/essentials`, open **Permission Assistant model**, choose a custom
     model, and enter its OpenRouter `provider/model` ID. Open the row again
     and restore the Jev default.
-12. Trigger a pending permission with a low Jev probability. Check that the
+13. Trigger a pending permission with a low Jev probability. Check that the
     desktop notification offers **Allow once** and **Allow always**. Clicking
     **Allow always** must answer the request and save the permission rule.
     Dismissing the notification must leave the OpenCode prompt open.
-13. Complete an assistant response. Check that the status bar shows token
+14. Complete an assistant response. Check that the status bar shows token
     rate, first-text latency, and total latency — a reasoning turn pairs the
     rate as `X/Y tok/s` — without an output count or cost. Disable
     **Response Usage Status** to hide those metrics.
