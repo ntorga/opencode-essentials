@@ -24,6 +24,7 @@ import {
   resolveProviderContextLimit,
 } from "./contextCeiling.ts"
 import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { logRejectedHostId as logRejectedHostIdEvent } from "./hostEventRejections.ts"
 import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 import { requestSummarize, type SummarizeResult } from "./sessionSummarizer.ts"
 
@@ -261,10 +262,12 @@ async function logRejectedSessionId(
   eventLabel: string,
   rejectedValue: unknown,
 ) {
-  await writeLog(tracker.client, "warn", "CeilingEventSessionIdRejected", {
-    event: eventLabel,
-    rejectedValue: String(rejectedValue),
-  })
+  await logRejectedHostIdEvent(
+    tracker.client,
+    "CeilingEventSessionIdRejected",
+    eventLabel,
+    rejectedValue,
+  )
 }
 
 // The plugin option is a per-project default below the built-in one; the

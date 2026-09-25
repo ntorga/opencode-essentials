@@ -21,6 +21,7 @@ import { newSessionId } from "../valueObject/sessionId.ts"
 import { isRecord } from "../valueObject/util.ts"
 import { resolveCeilingTurn } from "./contextCeiling.ts"
 import type { FeatureContext, ServerSuiteFeature } from "./feature.ts"
+import { logRejectedHostId as logRejectedHostIdEvent } from "./hostEventRejections.ts"
 import { CLIENT_REQUEST_DEADLINE_MS } from "./requestDeadline.ts"
 import { requestSummarize } from "./sessionSummarizer.ts"
 
@@ -311,10 +312,12 @@ async function logRejectedSessionId(
   eventLabel: string,
   rejectedValue: unknown,
 ) {
-  await writeLog(tracker.client, "warn", "IdleEventSessionIdRejected", {
-    event: eventLabel,
-    rejectedValue: String(rejectedValue),
-  })
+  await logRejectedHostIdEvent(
+    tracker.client,
+    "IdleEventSessionIdRejected",
+    eventLabel,
+    rejectedValue,
+  )
 }
 
 async function buildHooks(context: FeatureContext): Promise<Hooks> {
