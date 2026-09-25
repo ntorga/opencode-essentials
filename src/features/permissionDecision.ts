@@ -9,6 +9,7 @@ export const SAFE_PERMISSION_THRESHOLD = 0.8
 
 export type ClassifierQuestion = {
   stateKey: "commands" | "items"
+  answerKey: "safe" | "stuck"
   instructions: string
 }
 
@@ -21,6 +22,7 @@ const DEDICATED_QUESTIONS = new Map<string, ClassifierQuestion>([
     "bash",
     {
       stateKey: "commands",
+      answerKey: "safe",
       instructions:
         "Every bash command in commands is safe to run once in this project. It does not cause irreversible changes, expose credentials, or cause external side effects.",
     },
@@ -29,6 +31,7 @@ const DEDICATED_QUESTIONS = new Map<string, ClassifierQuestion>([
     "edit",
     {
       stateKey: "items",
+      answerKey: "safe",
       instructions:
         "Every file path in items is a project source file inside the workspace the agent edits. Editing it is safe: the path holds ordinary project code, not credentials, system state, or user data outside the project.",
     },
@@ -37,6 +40,7 @@ const DEDICATED_QUESTIONS = new Map<string, ClassifierQuestion>([
     "external_directory",
     {
       stateKey: "items",
+      answerKey: "safe",
       instructions:
         "Every path pattern in items is safe to read or write from this project once. It does not expose credentials, destroy user data, or cause external side effects.",
     },
@@ -50,33 +54,58 @@ export function classifierQuestion(
   if (dedicated) return dedicated
   return {
     stateKey: "items",
+    answerKey: "safe",
     instructions: `The agent asked the "${permission}" permission in this project. Every entry in items describes that request. Performing it once is safe: it does not cause irreversible changes, expose credentials, or cause external side effects.`,
   }
+}
+
+// A repeated reasoning tail answers a different question than the permission
+// classifier: the text is not unsafe, the model producing it has stalled.
+export const REASONING_LOOP_QUESTION: ClassifierQuestion = {
+  stateKey: "items",
+  answerKey: "stuck",
+  instructions:
+    "Every entry in items is a text fragment the model wrote several times in a row inside one reasoning block. The model is stuck in a reasoning spiral: it keeps re-deriving the same content without progress, and its response will not finish usefully on its own.",
+}
+
+export const REASONING_LOOP_CONFIRM_PROBABILITY = 0.8
+
+function newValidProbability(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined
+  if (!Number.isFinite(value) || value < 0 || value > 1) return undefined
+  return value
+}
+
+// One range contract for every probability read from the wire or a call
+// site; questions differ only in the threshold they compare against.
+function isProbabilityAtLeast(value: unknown, threshold: number): boolean {
+  const probability = newValidProbability(value)
+  return probability !== undefined && probability >= threshold
+}
+
+export function isSafePermissionProbability(probability: unknown): boolean {
+  return isProbabilityAtLeast(probability, SAFE_PERMISSION_THRESHOLD)
+}
+
+export function isReasoningLoopProbability(probability: unknown): boolean {
+  return isProbabilityAtLeast(probability, REASONING_LOOP_CONFIRM_PROBABILITY)
 }
 
 const OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 const CLASSIFICATION_TIMEOUT_MS = 8_000
 
-export function newSafeProbability(rawValue: unknown): number | undefined {
+export function newDecisionProbability(
+  rawValue: unknown,
+  answerKey: string,
+): number | undefined {
   if (!isRecord(rawValue) || !isRecord(rawValue.answers)) return undefined
-  const safeAnswer = rawValue.answers.safe
-  if (!isRecord(safeAnswer)) return undefined
-  if (safeAnswer.type !== "noul") return undefined
-  const probability = safeAnswer.noul
-  if (typeof probability !== "number") return undefined
-  if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
-    return undefined
-  }
-  return probability
+  const answer = rawValue.answers[answerKey]
+  if (!isRecord(answer)) return undefined
+  if (answer.type !== "noul") return undefined
+  return newValidProbability(answer.noul)
 }
 
-export function isSafePermissionProbability(probability: unknown): boolean {
-  if (typeof probability !== "number") return false
-  if (!Number.isFinite(probability) || probability > 1) return false
-  return probability >= SAFE_PERMISSION_THRESHOLD
-}
-
-export async function requestSafePermissionProbability(input: {
+export async function requestDecisionProbability(input: {
   apiKey: OpenRouterApiKey
   model: OpenRouterModelId
   question: ClassifierQuestion
@@ -95,7 +124,7 @@ export async function requestSafePermissionProbability(input: {
       model: input.model,
       state: { [input.question.stateKey]: input.patterns },
       questions: {
-        safe: {
+        [input.question.answerKey]: {
           type: "noul",
           instructions: input.question.instructions,
         },
@@ -108,7 +137,10 @@ export async function requestSafePermissionProbability(input: {
     throw new Error(`OpenRouterDecisionsRejected: ${response.status}`)
   }
   const rawResult: unknown = await response.json()
-  const probability = newSafeProbability(rawResult)
+  const probability = newDecisionProbability(
+    rawResult,
+    input.question.answerKey,
+  )
   if (probability === undefined) {
     throw new Error("OpenRouterDecisionInvalid")
   }

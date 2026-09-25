@@ -125,6 +125,7 @@ describe("essentials tui companion", () => {
         "token-ceiling-compactor",
         "idle-clock",
         "permission-assistant",
+        "reasoning-loop-guard",
         "usage-status",
         "$classifier-model",
         "$timeout:idle-auto-compactor",
@@ -134,6 +135,7 @@ describe("essentials tui companion", () => {
     assert.deepEqual(
       dialog.options.map((option) => option.footer),
       [
+        "enabled",
         "enabled",
         "enabled",
         "enabled",

@@ -6,9 +6,12 @@ import { newPermissionName } from "../valueObject/permissionName.ts"
 import {
   classifierQuestion,
   DEFAULT_CLASSIFIER_MODEL,
+  isReasoningLoopProbability,
   isSafePermissionProbability,
-  newSafeProbability,
-  requestSafePermissionProbability,
+  newDecisionProbability,
+  REASONING_LOOP_CONFIRM_PROBABILITY,
+  REASONING_LOOP_QUESTION,
+  requestDecisionProbability,
   SAFE_PERMISSION_THRESHOLD,
 } from "./permissionDecision.ts"
 
@@ -25,9 +28,10 @@ describe("Jev permission decisions", () => {
 
   it("reads a valid safe probability", () => {
     assert.equal(
-      newSafeProbability({
-        answers: { safe: { type: "noul", noul: 0.82 } },
-      }),
+      newDecisionProbability(
+        { answers: { safe: { type: "noul", noul: 0.82 } } },
+        "safe",
+      ),
       0.82,
     )
   })
@@ -46,7 +50,7 @@ describe("Jev permission decisions", () => {
 
   for (const response of invalidResponses) {
     it(`rejects an invalid response ${JSON.stringify(response)}`, () => {
-      assert.equal(newSafeProbability(response), undefined)
+      assert.equal(newDecisionProbability(response, "safe"), undefined)
     })
   }
 
@@ -94,6 +98,34 @@ describe("classifier questions", () => {
     })
   }
 
+  it("confirms a reasoning spiral only at its own threshold", () => {
+    assert.equal(REASONING_LOOP_CONFIRM_PROBABILITY, 0.8)
+    assert.equal(isReasoningLoopProbability(0.8), true)
+    assert.equal(isReasoningLoopProbability(0.799), false)
+    assert.equal(isReasoningLoopProbability(undefined), false)
+    assert.equal(isReasoningLoopProbability(-0.5), false)
+  })
+
+  it("asks the stuck question over the repeated-text sample", () => {
+    assert.equal(REASONING_LOOP_QUESTION.stateKey, "items")
+    assert.equal(REASONING_LOOP_QUESTION.answerKey, "stuck")
+    assert.match(REASONING_LOOP_QUESTION.instructions, /reasoning spiral/i)
+    assert.equal(
+      newDecisionProbability(
+        { answers: { stuck: { type: "noul", noul: 0.93 } } },
+        "stuck",
+      ),
+      0.93,
+    )
+    assert.equal(
+      newDecisionProbability(
+        { answers: { safe: { type: "noul", noul: 0.93 } } },
+        "stuck",
+      ),
+      undefined,
+    )
+  })
+
   it("sends the question instructions and patterns to the Decisions API", async () => {
     const edit = classifierQuestion(trustedPermissionName("edit"))
     const apiKey = newOpenRouterApiKey("sk-test")
@@ -113,7 +145,7 @@ describe("classifier questions", () => {
       )
     }
     try {
-      const probability = await requestSafePermissionProbability({
+      const probability = await requestDecisionProbability({
         apiKey,
         model: DEFAULT_CLASSIFIER_MODEL,
         question: edit,

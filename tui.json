@@ -2,6 +2,7 @@
   "plugin": [
     "./src/tui.ts",
     "./src/permission-assistant.tsx",
+    "./src/reasoning-loop-escalation.tsx",
     [
       "./src/usage-status.tsx",
       {

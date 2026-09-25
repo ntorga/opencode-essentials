@@ -157,7 +157,8 @@ function showFeatureDialog(api: TuiPluginApi) {
   const classifierModelRow = {
     title: "Permission Assistant model",
     value: CLASSIFIER_MODEL_ROW_VALUE,
-    description: "OpenRouter Decisions model used for Bash classification.",
+    description:
+      "OpenRouter Decisions model for permission safety and reasoning-spiral checks.",
     footer: `${resolveEffectiveModel(
       config,
       permissionAssistantFeature.id,

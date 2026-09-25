@@ -17,7 +17,7 @@ import {
   classifierQuestion,
   DEFAULT_CLASSIFIER_MODEL,
   isSafePermissionProbability,
-  requestSafePermissionProbability,
+  requestDecisionProbability,
 } from "./features/permissionDecision.ts"
 import { sanitizeText } from "./log.ts"
 import { readOpenRouterApiKey } from "./openRouterAuth.ts"
@@ -325,7 +325,7 @@ async function answerOrNotifyPermission(
 
   let probability: number
   try {
-    probability = await requestSafePermissionProbability({
+    probability = await requestDecisionProbability({
       apiKey: credential.apiKey,
       model,
       question,
