@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import type { PermissionName } from "../valueObject/permissionName.ts"
 import { newPermissionName } from "../valueObject/permissionName.ts"
-import { newAutoAllowReply } from "./autoAllowPolicy.ts"
+import { shouldRememberApproval } from "./autoAllowPolicy.ts"
 
 function trustedPermission(name: string): PermissionName {
   const permission = newPermissionName(name)
@@ -10,35 +10,41 @@ function trustedPermission(name: string): PermissionName {
   return permission
 }
 
-describe("auto-allow reply policy", () => {
-  it("remembers a safe file edit so later edits stop consulting Jev", () => {
+describe("auto-allow remember policy", () => {
+  it("remembers a safe file edit when the preference is to remember", () => {
     assert.equal(
-      newAutoAllowReply(trustedPermission("edit"), "always"),
-      "always",
+      shouldRememberApproval(trustedPermission("edit"), "always"),
+      true,
     )
   })
 
-  it("never answers bash with always: an rm * rule would allow rm -rf /", () => {
-    assert.equal(newAutoAllowReply(trustedPermission("bash"), "always"), "once")
-  })
-
-  it("never answers external_directory with always: it widens to the directory", () => {
+  it("never remembers a bash command: a cached command would skip its check", () => {
     assert.equal(
-      newAutoAllowReply(trustedPermission("external_directory"), "always"),
-      "once",
+      shouldRememberApproval(trustedPermission("bash"), "always"),
+      false,
     )
   })
 
-  it("answers an unknown permission with once", () => {
+  it("never remembers an external directory write", () => {
     assert.equal(
-      newAutoAllowReply(trustedPermission("data_sync"), "always"),
-      "once",
+      shouldRememberApproval(trustedPermission("external_directory"), "always"),
+      false,
     )
   })
 
-  it("honours the once preference for every permission", () => {
+  it("never remembers an unknown permission", () => {
+    assert.equal(
+      shouldRememberApproval(trustedPermission("data_sync"), "always"),
+      false,
+    )
+  })
+
+  it("remembers nothing when the preference is ask-every-time", () => {
     for (const name of ["edit", "bash", "external_directory", "webfetch"]) {
-      assert.equal(newAutoAllowReply(trustedPermission(name), "once"), "once")
+      assert.equal(
+        shouldRememberApproval(trustedPermission(name), "once"),
+        false,
+      )
     }
   })
 })

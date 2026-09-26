@@ -1,22 +1,21 @@
 import type { PermissionName } from "../valueObject/permissionName.ts"
 import type { PermissionReplyMode } from "../valueObject/permissionReplyMode.ts"
 
-// OpenCode saves an `always` reply under the pattern the requesting tool
-// declares, not under the exact thing Jev judged:
-// - edit (edit, write, apply_patch): the pattern is `*`, so a remembered
-//   approval covers workspace file edits only, and git can undo them.
-// - bash: the pattern is the command prefix plus a wildcard — `rm *` for any
-//   `rm`. One approved `rm file` would silently allow a later `rm -rf /` that
-//   Jev never saw.
-// - external_directory: the pattern widens the one approved file to every
-//   path in its directory, outside the workspace where credentials live.
-// Only the first class is safe to remember; the rest answer `once`.
+// A remembered approval is kept in the classifier's own per-session memory
+// (see features/permissionMemory.ts), never as an OpenCode rule: an OpenCode
+// `always` reply stores the pattern the tool declares, and the edit tool
+// declares `*`, so it would open every edit. The assistant answers `once` and
+// remembers the single path instead.
+//
+// Only file edits qualify. A Bash approval must not be replayed automatically:
+// the safe command the classifier judged once is not a promise that a later
+// request carrying the same text is safe. Everything else reaches Jev again.
 const AUTO_ALLOW_REMEMBER_PERMISSIONS: ReadonlySet<string> = new Set(["edit"])
 
-export function newAutoAllowReply(
+export function shouldRememberApproval(
   permission: PermissionName,
   preferredMode: PermissionReplyMode,
-): PermissionReplyMode {
-  if (preferredMode !== "always") return "once"
-  return AUTO_ALLOW_REMEMBER_PERMISSIONS.has(permission) ? "always" : "once"
+): boolean {
+  if (preferredMode !== "always") return false
+  return AUTO_ALLOW_REMEMBER_PERMISSIONS.has(permission)
 }

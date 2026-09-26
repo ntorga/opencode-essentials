@@ -3,6 +3,7 @@
 ```log
 0.6.0 - 2026/09/26
 chore: bump package version to 0.6.0
+fix: remember approved edits per session instead of a broad edit rule
 feat: remember safe file edits so Jev stops approving every one
 
 0.5.0 - 2026/09/25

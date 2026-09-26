@@ -4,7 +4,7 @@ import type {
   TuiPluginApi,
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
-import { newAutoAllowReply } from "./features/autoAllowPolicy.ts"
+import { shouldRememberApproval } from "./features/autoAllowPolicy.ts"
 import { buildPermissionNotificationArguments } from "./features/notificationText.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
 import {
@@ -21,6 +21,10 @@ import {
   isSafePermissionProbability,
   requestDecisionVerdict,
 } from "./features/permissionDecision.ts"
+import {
+  newPermissionMemory,
+  type PermissionMemory,
+} from "./features/permissionMemory.ts"
 import { sanitizeText } from "./log.ts"
 import { readOpenRouterApiKey } from "./openRouterAuth.ts"
 import {
@@ -295,6 +299,7 @@ async function answerOrNotifyPermission(
   permission: PendingPermission,
   model: OpenRouterModelId,
   state: PermissionAssistantState,
+  memory: PermissionMemory,
 ): Promise<void> {
   if (permission.request.permission === DOOM_LOOP_PERMISSION) {
     const interrupted = await replyPermission(
@@ -310,6 +315,36 @@ async function answerOrNotifyPermission(
     }
     showPermissionNotification(api, pendingPermissions, permission)
     return
+  }
+
+  // The remember preference is read once here and reused for both the recall
+  // gate and the post-verdict remember, so flipping the setting off in
+  // /essentials takes effect immediately: a disabled memory stops answering
+  // cached requests as well as storing new ones.
+  const config = readPermissionAssistantConfig(api)
+  if (!config) return
+  const preferredMode = resolveEffectiveAutoAllowReply(
+    config,
+    permissionAssistantFeature.id,
+    DEFAULT_AUTO_ALLOW_REPLY,
+  )
+
+  // A repeat of an approval the classifier already granted this session answers
+  // straight away: no Jev call, no prompt, and no broad OpenCode rule.
+  if (
+    shouldRememberApproval(permission.request.permission, preferredMode) &&
+    memory.recall(permission.request)
+  ) {
+    const wasRecalled = await replyPermission(
+      api,
+      pendingPermissions,
+      permission,
+      "cache",
+      "once",
+    )
+    if (wasRecalled || !isCurrentPermission(pendingPermissions, permission)) {
+      return
+    }
   }
 
   const question = classifierQuestionFor(permission.request)
@@ -375,22 +410,25 @@ async function answerOrNotifyPermission(
     return
   }
 
-  const config = readPermissionAssistantConfig(api)
-  if (!config) return
-  const preferredMode = resolveEffectiveAutoAllowReply(
-    config,
-    permissionAssistantFeature.id,
-    DEFAULT_AUTO_ALLOW_REPLY,
-  )
+  // Re-read so a feature disabled during the Jev round-trip does not auto-answer
+  // after the fact. The remember mode itself was fixed by the read above.
+  if (!readPermissionAssistantConfig(api)) return
   const wasAllowed = await replyPermission(
     api,
     pendingPermissions,
     permission,
     "classifier",
-    newAutoAllowReply(permission.request.permission, preferredMode),
+    "once",
   )
-  if (wasAllowed || !isCurrentPermission(pendingPermissions, permission)) return
-  showPermissionNotification(api, pendingPermissions, permission)
+  if (!wasAllowed) {
+    if (isCurrentPermission(pendingPermissions, permission)) {
+      showPermissionNotification(api, pendingPermissions, permission)
+    }
+    return
+  }
+  if (shouldRememberApproval(permission.request.permission, preferredMode)) {
+    memory.remember(permission.request)
+  }
 }
 
 function readPermissionAssistantConfig(api: TuiPluginApi) {
@@ -411,6 +449,7 @@ function readPermissionAssistantConfig(api: TuiPluginApi) {
 
 const tui: TuiPlugin = async (api) => {
   const pendingPermissions = new Map<PermissionRequestId, PendingPermission>()
+  const permissionMemory = newPermissionMemory()
   const state = {
     missingCredentialWasLogged: false,
     authStoreFailureWasLogged: false,
@@ -449,6 +488,7 @@ const tui: TuiPlugin = async (api) => {
       permission,
       model,
       state,
+      permissionMemory,
     ).catch((failure: unknown) => {
       if (!isCurrentPermission(pendingPermissions, permission)) return
       void logPermissionFailure(api, "PermissionAssistantFailed", failure)
@@ -477,9 +517,16 @@ const tui: TuiPlugin = async (api) => {
     stopPendingPermission(pendingPermissions, requestId)
   })
 
+  // A deleted session's remembered approvals die with it. Idle is not the end
+  // of a session — the chat wakes on the next message — so idle keeps them.
+  const stopSessionDeleted = api.event.on("session.deleted", (event) => {
+    permissionMemory.forgetSession(event.properties.info.id)
+  })
+
   api.lifecycle.onDispose(() => {
     stopAsked()
     stopReplied()
+    stopSessionDeleted()
     for (const requestId of pendingPermissions.keys()) {
       stopPendingPermission(pendingPermissions, requestId)
     }

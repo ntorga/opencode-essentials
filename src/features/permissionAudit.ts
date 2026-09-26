@@ -6,9 +6,11 @@ import type { OpenRouterModelId } from "../valueObject/openRouterModelId.ts"
 import type { PermissionRequest } from "../valueObject/permissionRequest.ts"
 import type { DecisionVerdict } from "./permissionDecision.ts"
 
-// `assistant` is the plugin's own rule answering on the user's behalf, with
-// no human and no Jev call — the doom-loop interrupt today.
-export type PermissionAuditActor = "classifier" | "user" | "assistant"
+// `assistant` is the plugin's own rule answering on the user's behalf with no
+// human and no Jev call — the doom-loop interrupt today. `cache` is the
+// classifier answering from its per-session memory: the path was approved
+// earlier, so this request is replayed with `once` and no new Jev call.
+export type PermissionAuditActor = "classifier" | "user" | "assistant" | "cache"
 
 export type PermissionAuditReply = "once" | "always" | "reject"
 

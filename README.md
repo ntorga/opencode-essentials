@@ -32,7 +32,8 @@ status bar, and assist with permissions.
   before it reaches you. Jev is the default; switch it from `/essentials`.
   Routine safe requests are approved, anything the model cannot vouch for
   keeps the normal prompt, and a doom loop is answered with a correction
-  instead of waking you.
+  instead of waking you. A safe file edit is remembered, so the same file does
+  not ask you again that session.
   - *Problem it solves:* an unattended run stalls on every routine command
     that needs approval.
 - **Permission Notifications**: on Linux, raises a pending request as a

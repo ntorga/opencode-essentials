@@ -1,8 +1,9 @@
-// The reply the classifier sends when it auto-allows a request. `always` lets
-// OpenCode save a rule so matching requests stop reaching the classifier;
-// `once` answers only this request and asks again next time. It never carries
-// `reject`: this value is chosen only after Jev already scored the request
-// safe.
+// The user's preference for what the classifier does with a safe verdict.
+// `always` remembers the approved edit for the session (see
+// features/permissionMemory.ts); `once` answers the request and judges the next
+// one again. The reply the classifier sends to OpenCode is always `once`; this
+// value only decides whether the path is remembered. It never carries `reject`:
+// this preference applies only after Jev scored the request safe.
 export type PermissionReplyMode = "once" | "always"
 
 export const DEFAULT_AUTO_ALLOW_REPLY: PermissionReplyMode = "always"

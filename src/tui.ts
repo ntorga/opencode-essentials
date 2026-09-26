@@ -194,7 +194,7 @@ function showFeatureDialog(api: TuiPluginApi) {
     title: "Permission Assistant auto-allow reply",
     value: AUTO_ALLOW_REPLY_ROW_VALUE,
     description:
-      "How a safe Jev verdict answers the request. Always saves a rule so matching requests stop asking; once answers only this request.",
+      "How a safe Jev verdict is handled. Always remembers that file path for the session so a repeat skips Jev; once judges every edit. Applies to edits only.",
     footer: `${resolveEffectiveAutoAllowReply(
       config,
       permissionAssistantFeature.id,

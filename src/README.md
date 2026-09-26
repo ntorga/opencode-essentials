@@ -143,20 +143,23 @@ an answer reach this flow.
   loop and tells it to change approach or report the blocker. The human
   prompt stays as the fallback when that reply fails.
 - Essentials reads the model's safe probability. At `0.80` or higher the
-  assistant answers the request. A lower score, a missing credential, an
-  invalid response, or a network error leaves the normal prompt open.
-- When the assistant answers a safe **file edit**, it replies `always` by
-  default. OpenCode then saves an edit rule, so later file edits stop
-  consulting Jev and stop interrupting you. The **Permission Assistant
-  auto-allow reply** row in `/essentials` switches this back to `once` if you
-  would rather confirm each edit.
-- The assistant never replies `always` to a **Bash** or **external-directory**
-  request. OpenCode saves an `always` reply under the pattern the tool asks
-  for, not the exact command. For Bash that pattern is the command prefix plus
-  a wildcard — one approved `rm file` would save `rm *` and let a later
-  `rm -rf /` through with no check. An external directory would widen from one
-  file to its whole folder, outside the workspace. Those two answer `once`, so
-  Jev judges every one.
+  assistant answers the request with `once`. A lower score, a missing
+  credential, an invalid response, or a network error leaves the normal prompt
+  open.
+- When the assistant answers a safe **file edit**, it also remembers that exact
+  path for the rest of the session. A later edit to the same path is answered
+  `once` with no Jev call and no prompt. The classifier never replies `always` —
+  OpenCode would store the edit tool's `*` pattern and open every edit. (The
+  human desktop **Allow always** button is separate and does create such a rule.)
+  The **Permission Assistant auto-allow reply** row in `/essentials` turns this
+  memory off (`once`) so Jev judges every edit. Deleting the session clears it.
+- Only **file edits** are remembered this way. A safe **Bash** command or
+  **external-directory** request is answered `once` and re-checked every time:
+  a remembered command is a promise that a later identical request is safe,
+  which the classifier never makes. (OpenCode's own `always` reply is the
+  danger here — for Bash it stores a command-prefix wildcard, so one approved
+  `rm file` would save `rm *` and let a later `rm -rf /` through with no check.
+  The assistant never replies `always`, so it never creates that rule.)
 - OpenCode v1 publishes a pending request before the TUI sees it. The prompt
   can appear briefly while Jev classifies the request.
 - On Linux, `notify-send` creates a freedesktop.org notification with
@@ -178,14 +181,15 @@ an answer reach this flow.
   classification that answers a still-open request: permission name, model,
   safe probability, and auto-allow verdict. The line also carries the
   answering model's explanation when it provides one; Jev itself returns
-  none. Another line records the decision: permission name, patterns, session
-  id, actor (`classifier`, `user`, or `assistant`), and reply (`once`,
-  `always`, or `reject`). When a below-threshold verdict reaches the human,
-  the decision line also carries that verdict under `classifier`, so the
-  reply shows why Jev deferred. A doom-loop
-  interrupt appears as one decision line with actor `assistant` and reply
-  `reject`; it never reaches the classifier, so it writes no classification
-  line. Commands that OpenCode's allow or
+   none. Another line records the decision: permission name, patterns, session
+   id, actor (`classifier`, `user`, `assistant`, or `cache`), and reply (`once`,
+   `always`, or `reject`). `cache` marks a request answered from the
+   classifier's session memory, with no Jev call. When a below-threshold verdict reaches the human,
+   the decision line also carries that verdict under `classifier`, so the
+   reply shows why Jev deferred. A doom-loop
+   interrupt appears as one decision line with actor `assistant` and reply
+   `reject`; it never reaches the classifier, so it writes no classification
+   line. Commands that OpenCode's allow or
   deny rules handle emit no events and never reach the file. Patterns longer
   than 2000 characters are shortened and carry `"truncated": true`. Use the
   file to move safe commands into the allow list and to check how often each
@@ -205,10 +209,10 @@ an answer reach this flow.
 - The **Permission Assistant model** row changes the model without a restart.
   Enter a `provider/model` ID. The row can restore Jev as the default. The
   Reasoning Loop Guard reads its verdict from the same model choice.
-- The **Permission Assistant auto-allow reply** row chooses `always` or `once`
-  for safe file edits without a restart. It applies to edits only; Bash and
-  external-directory requests always answer `once`. The row can restore the
-  `always` default.
+- The **Permission Assistant auto-allow reply** row chooses whether a safe file
+  edit is remembered for the session (`always`) or judged every time (`once`).
+  It applies to edits only; Bash and external-directory requests are never
+  remembered. The row can restore the `always` (remember) default.
 
 The model must support OpenRouter's Decisions API. Jev is a structured
 decision model. It is not a regular chat model.
@@ -418,9 +422,10 @@ credential, network error, or invalid response leaves the prompt open.
 
 The auto-allow reply is stored at `settings.permission-assistant.autoAllowReply`
 in `essentials.json`. The default is `always`. It chooses how the assistant
-answers a safe **file edit**: `always` saves an edit rule, `once` answers only
-that request. The value never raises a Bash or external-directory request above
-`once`, whatever the setting says.
+handles a safe **file edit**: `always` remembers that path for the session so a
+repeat skips Jev, `once` answers only that request. The assistant never writes
+an OpenCode `always` rule. Bash and external-directory requests are never
+remembered, whatever the setting says.
 
 `ceilingTokens` is the context size, in tokens, at which the ceiling
 compactor runs. A missing value falls back to the default silently. A
@@ -545,11 +550,13 @@ npm run typecheck # tsc --noEmit
     probability of at least `0.80` answers it with `once`; the next Bash
     command consults Jev again. A lower or invalid result leaves the prompt
     open.
-11. Set `permission.edit` to `ask`. Let a safe file edit pass. Check that the
-    next edit reaches OpenCode without a Jev call: the first edit saved an
-    `always` rule. Type `/essentials`, open **Permission Assistant auto-allow
-    reply**, choose `once`, and make a new edit in a fresh session: it now
-    consults Jev each time. Restore the `always` default.
+11. Set `permission.edit` to `ask`. Let a safe edit to one file pass, then edit
+     the same file again: the second edit answers with no Jev call (the path is
+     remembered for the session), while an edit to a different file still
+     consults Jev. Confirm `essentials.json` has no OpenCode `always` edit
+     rule. Delete the session and the memory is gone. Type `/essentials`, open
+     **Permission Assistant auto-allow reply**, choose `once`, and start a fresh
+     session: every edit consults Jev again. Restore the `always` default.
 12. Type `/essentials`, open **Permission Assistant model**, choose a custom
     model, and enter its OpenRouter `provider/model` ID. Open the row again
     and restore the Jev default.
