@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: Use when a user asks for browser inspection or when rendered web behavior must be verified. Use agent-browser with a private session and Chrome.
+description: Browser inspection and interaction for verifying rendered web UI during development. Use agent-browser with a private session and Chrome.
 ---
 
 # Agent browser
@@ -14,120 +14,161 @@ a CLI that drives a real Chrome session.
 
 ## Procedure
 
-### Set up the session
+### 1. Claim your own session
 
-1. **Check the install.** Run `agent-browser --version`. When the command is
-   missing, ask the user to install it:
+The default session is one browser shared by every agent on the machine.
+Another agent can navigate away from your page mid-task. Ask agent-browser for
+a worktree-scoped session id and pass it to every command:
 
-   ```bash
-   npm install -g agent-browser
-   agent-browser install   # downloads Chrome for Testing (first time only)
-   ```
+```bash
+agent-browser session id --scope worktree --prefix "ui-verify-<agent-name>"
+agent-browser --session ui-verify-coder-<worktree-hash> open http://localhost:3000/page
+```
 
-2. **Always pass `--engine chrome`.** Lightpanda has no rendering engine, so
-   its output does not match what a user sees.
+The command prints the full id: it keeps the prefix and appends the worktree
+hash. A shell export does not survive between tool calls. The session travels
+as a flag.
 
-3. **Claim your own session.** The default session is one browser shared by
-   every agent on the machine. Another agent can navigate away from your page
-   mid-task. Create a worktree-scoped session id and pass it to every later
-   command:
-
-   ```bash
-   agent-browser session id --scope worktree --prefix "ui-verify-coder"
-   agent-browser --engine chrome --session <session-id> open http://localhost:3000
-   ```
-
-   A shell export does not survive between tool calls. The session travels as a
-   flag, not an environment variable.
-
-4. **Trust the local certificate.** A locally hosted app often serves HTTPS
-   with a self-signed certificate. The browser refuses the page until the
-   certificate is trusted. For a localhost or private IP address, add
-   `--ignore-https-errors` on every command. Never pass the flag to a public
-   host: it disables certificate validation, so it belongs only on a host you
-   run yourself.
-
-### Run the verification loop
+### 2. Run the verification loop
 
 After every UI change:
 
 1. Edit the source file.
 2. Rebuild, or let the watcher handle it.
 3. Wait for the server to serve `localhost:<port>`.
-4. Open the page in your session and inspect the rendered result.
+4. Inspect the rendered result.
 5. Interact with the component.
 6. Read the screenshot and fix issues.
 
-Never assume a component is correct without looking at it.
+### 3. Snapshot before you interact
 
-### Inspect the page
+Refs come from the accessibility snapshot. Take a new snapshot after every
+navigation, state change, or DOM update:
 
-7. **Snapshot before you interact.** Refs come from the accessibility
-   snapshot. Take a new snapshot after every navigation, state change, or DOM
-   update. Never reuse refs across page states.
+```bash
+agent-browser --session <id> open http://localhost:3000/page
+agent-browser --session <id> snapshot -i
+agent-browser --session <id> click @e3
+agent-browser --session <id> snapshot -i
+```
 
-   ```bash
-   agent-browser --engine chrome --session <session-id> snapshot -i
-   agent-browser --engine chrome --session <session-id> click @e3
-   agent-browser --engine chrome --session <session-id> snapshot -i
-   ```
+### 4. Inspect rendered state
 
-8. **Open hidden content.** Dropdowns and modals stay hidden until triggered.
-   Click the trigger, then re-snapshot for refs to the visible elements.
+```bash
+agent-browser --session <id> get styles "h1"        # CSS classes actually applied
+agent-browser --session <id> console                # console logs
+agent-browser --session <id> errors                 # page errors only
+agent-browser --session <id> network requests       # captured requests
+agent-browser --session <id> eval 'document.title'  # client-side state
+```
 
-9. **Fill a form step by step.** Press `Tab` after a field to trigger blur and
-   validation, then re-snapshot to read the result.
+Wrap the `eval` payload in single quotes and use double quotes for strings
+inside it:
 
-   ```bash
-   agent-browser --engine chrome --session <session-id> fill @e2 "test value"
-   agent-browser --engine chrome --session <session-id> press Tab
-   agent-browser --engine chrome --session <session-id> snapshot -i
-   ```
+```bash
+agent-browser --session <id> eval '(() => { const rows = document.querySelectorAll("[data-test]");
+return rows.length; })()'
+```
 
-10. **Wait for async work.** After a server request or an animation, wait
-    before you re-snapshot.
+A single-quoted payload parses as one permission pattern, on one line or
+across lines.
 
-    ```bash
-    agent-browser --engine chrome --session <session-id> wait networkidle
-    ```
+Check console errors after every UI change.
 
-11. **Check rendered state.** Run these after every UI change; console and
-    page errors carry failures the screenshot does not show.
+### 5. Fill a form
 
-    ```bash
-    agent-browser --engine chrome --session <session-id> errors
-    agent-browser --engine chrome --session <session-id> console
-    agent-browser --engine chrome --session <session-id> get styles "h1"
-    agent-browser --engine chrome --session <session-id> eval "document.title"
-    ```
+```bash
+agent-browser --session <id> snapshot -i
+agent-browser --session <id> fill @e2 "test value"
+agent-browser --session <id> press Tab               # trigger blur and validation
+agent-browser --session <id> snapshot -i
+```
 
-12. **Capture the result and read it.** The annotation overlay shows element
-    refs on the rendered page.
+### 6. Wait for async work
 
-    ```bash
-    agent-browser --engine chrome --session <session-id> screenshot --annotate /tmp/ui.png
-    ```
+After a server request or an animation, wait before you re-snapshot:
 
-13. **Test responsive layouts.** Use a narrow viewport when the page must work
-    on mobile. Return to a desktop viewport after that check.
+```bash
+agent-browser --session <id> click @e5
+agent-browser --session <id> wait networkidle
+agent-browser --session <id> snapshot -i
+```
 
-    ```bash
-    agent-browser --engine chrome --session <session-id> set viewport 375 812
-    agent-browser --engine chrome --session <session-id> screenshot --annotate /tmp/mobile.png
-    agent-browser --engine chrome --session <session-id> set viewport 1280 800
-    agent-browser --engine chrome --session <session-id> screenshot --annotate /tmp/desktop.png
-    ```
+### 7. Open hidden content
+
+Dropdowns and modals stay hidden until triggered. Click the trigger, then
+re-snapshot for refs to the visible elements.
+
+### 8. Capture the result
+
+```bash
+agent-browser --session <id> screenshot --annotate /tmp/component-state.png
+```
+
+Read the file after you capture it. The annotation overlay shows element refs
+on the rendered page.
+
+### 9. Verify the finished feature visually
+
+When the feature work is done, capture the final state without the annotation
+overlay and Read the image file:
+
+```bash
+agent-browser --session <id> screenshot /tmp/<feature>-done.png
+```
+
+The screenshot enters your context as an image only when you Read it. Inspect
+it for what text output cannot show: alignment, spacing, overlap, clipping,
+contrast, and broken styles. Fix what looks wrong, then capture again.
+
+## Setup and edge cases
+
+### Test responsive layouts
+
+Only when the feature changes layout behavior:
+
+```bash
+agent-browser --session <id> set viewport 375 812
+agent-browser --session <id> screenshot --annotate /tmp/mobile.png
+
+agent-browser --session <id> set viewport 1280 800
+agent-browser --session <id> screenshot --annotate /tmp/desktop.png
+```
+
+### Trust the local certificate
+
+A locally hosted app often serves HTTPS with a self-signed certificate the
+browser refuses. For localhost or a private IP address, pass
+`--ignore-https-errors` on every command:
+
+```bash
+agent-browser --session <id> --ignore-https-errors open https://localhost:3000/page
+```
+
+Never pass the flag to a public host. It disables certificate validation.
+
+### Install
+
+```bash
+command -v agent-browser >/dev/null || { npm install -g agent-browser && agent-browser install; }
+```
+
+The Chrome download runs only on a fresh install.
 
 ## Guardrails
 
 - Never assume a rendered component is correct from source code alone.
+- Never report a UI feature done from text output alone. Capture the final
+  state and Read the screenshot before you report.
+- Never wrap an `eval` payload in double quotes. Single quotes outside,
+  double quotes inside: `agent-browser eval '(() => { ... })()'`.
 - Never run agent-browser in the shared default session. Pass `--session <id>`
   on every command.
 - Never reuse agent-browser refs across page states. Re-snapshot after any
   change.
-- Never use Lightpanda. It has no rendering engine.
-- Never pass `--ignore-https-errors` to a public host.
+- Never use Lightpanda. It has no rendering engine, so its output does not
+  match what a user sees.
 - Never use agent-browser to debug a live user session. It cannot access the
-  user's cookies or auth state.
+  user's cookies or auth state. Ask the user to reproduce the state instead.
 - Never run more than 3 browser sessions at the same time. More sessions
   starve the host and the work already in progress.
