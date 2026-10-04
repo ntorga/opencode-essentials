@@ -49,7 +49,7 @@ function words(count: number, prefix: string): string[] {
   return generated
 }
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 let dataHomeTemp = ""
@@ -115,6 +115,41 @@ function reasoningPartEvent(
       },
     },
   } as unknown as Event
+}
+
+function reasoningDeltaEvent(
+  sessionId: string,
+  messageId: string,
+  delta: string,
+): Event {
+  return {
+    type: "message.part.delta",
+    properties: {
+      sessionID: sessionId,
+      messageID: messageId,
+      partID: `prt_${messageId}`,
+      field: "text",
+      delta,
+    },
+  } as unknown as Event
+}
+
+// A spiral long enough to cross two paced checks. The first check at 128
+// words sees the phrase twice; the filler breaks the third alignment. The
+// second at 256 words sees it eight times.
+function streamedSpiralWords(): string[] {
+  return [
+    ...words(60, "fill"),
+    ...Array.from({ length: 12 }, () => PHRASE_WORDS).flat(),
+  ]
+}
+
+function deltaChunks(streamWords: string[], chunkWords: number): string[] {
+  const chunks: string[] = []
+  for (let start = 0; start < streamWords.length; start += chunkWords) {
+    chunks.push(streamWords.slice(start, start + chunkWords).join(" "))
+  }
+  return chunks
 }
 
 function sessionIdleEvent(sessionId: string): Event {
@@ -296,7 +331,7 @@ describe("reasoning-loop-guard", () => {
     await hooks.dispose?.()
   })
 
-  it("discards a verdict that arrives after the response ended", async () => {
+  it("drops a cleared verdict that arrives after the response ended", async () => {
     const fake = fakeClient()
     const hooks = await startGuard(fake)
     const control = stubDecisionsFetch()
@@ -305,11 +340,144 @@ describe("reasoning-loop-guard", () => {
       event: reasoningPartEvent("s1", "msg_late", SPIRAL_TEXT),
     })
     await hooks.event?.({ event: sessionIdleEvent("s1") })
-    control.resolve(0.95)
+    control.resolve(0.5)
     await waitFor(() => fake.logMessages.includes("ReasoningLoopVerdictStale"))
 
     assert.equal(fake.abortCalls.length, 0)
     assert.equal(fake.promptRequests.length, 0)
+    await hooks.dispose?.()
+  })
+
+  it("logs a late confirmed verdict without cancelling the finished turn", async () => {
+    const fake = fakeClient()
+    const hooks = await startGuard(fake)
+    const control = stubDecisionsFetch()
+
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_late_confirm", SPIRAL_TEXT),
+    })
+    await hooks.event?.({ event: sessionIdleEvent("s1") })
+    control.resolve(0.95)
+    await waitFor(() =>
+      fake.logMessages.includes("ReasoningLoopVerdictLateConfirmed"),
+    )
+
+    assert.equal(fake.abortCalls.length, 0)
+    assert.equal(fake.promptRequests.length, 0)
+    await hooks.dispose?.()
+  })
+
+  it("cancels the live next response when a late verdict confirms the loop", async () => {
+    const fake = fakeClient()
+    const hooks = await startGuard(fake)
+    const control = stubDecisionsFetch()
+
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_spiraled", SPIRAL_TEXT),
+    })
+    // The agent loop moved on: the next response opened before the verdict
+    // for the spiraled one arrived.
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_next_step", ""),
+    })
+    control.resolve(0.95)
+    await waitFor(() => fake.abortCalls.length === 1)
+
+    assert.equal(fake.promptRequests.length, 1)
+    assert.match(fake.promptRequests[0]?.text ?? "", /reasoning loop guard/)
+    await hooks.dispose?.()
+  })
+
+  it("leaves a fresh user turn alone when a late verdict confirms the old loop", async () => {
+    const fake = fakeClient()
+    const hooks = await startGuard(fake)
+    const control = stubDecisionsFetch()
+
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_spiraled", SPIRAL_TEXT),
+    })
+    // The user sent a new message before the verdict arrived; the response
+    // now streaming belongs to that new turn, not to the loop.
+    await hooks["chat.message"]?.(
+      { sessionID: "s1" },
+      { message: userMessage("s1"), parts: [] },
+    )
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_new_turn", ""),
+    })
+    control.resolve(0.95)
+    await waitFor(() =>
+      fake.logMessages.includes("ReasoningLoopVerdictLateConfirmed"),
+    )
+
+    assert.equal(fake.abortCalls.length, 0)
+    assert.equal(fake.promptRequests.length, 0)
+    await hooks.dispose?.()
+  })
+
+  it("interrupts a confirmed spiral mid-stream from deltas alone", async () => {
+    const fake = fakeClient()
+    const hooks = await startGuard(fake)
+    const control = stubDecisionsFetch()
+
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_stream", ""),
+    })
+    const chunks = deltaChunks(streamedSpiralWords(), 6)
+    let raisedAt = -1
+    for (let index = 0; index < chunks.length; index += 1) {
+      await hooks.event?.({
+        event: reasoningDeltaEvent("s1", "msg_stream", chunks[index] ?? ""),
+      })
+      if (control.bodies.length > 0) {
+        raisedAt = index
+        break
+      }
+    }
+    assert.ok(raisedAt >= 0, "no suspect was raised from deltas")
+
+    // The response is still streaming: more deltas arrive with no end event.
+    for (const chunk of chunks.slice(raisedAt + 1, raisedAt + 4)) {
+      await hooks.event?.({
+        event: reasoningDeltaEvent("s1", "msg_stream", chunk ?? ""),
+      })
+    }
+    control.resolve(0.95)
+    await waitFor(() => fake.abortCalls.length === 1)
+
+    assert.equal(fake.promptRequests.length, 1)
+    await hooks.dispose?.()
+  })
+
+  it("matches a phrase whose words arrive split across deltas", async () => {
+    const fake = fakeClient()
+    const hooks = await startGuard(fake)
+    const control = stubDecisionsFetch()
+
+    await hooks.event?.({
+      event: reasoningPartEvent("s1", "msg_split", ""),
+    })
+    const splitWords = streamedSpiralWords().flatMap((word) => [
+      word.slice(0, Math.ceil(word.length / 2)),
+      `${word.slice(Math.ceil(word.length / 2))} `,
+    ])
+    let raised = false
+    for (const delta of splitWords) {
+      await hooks.event?.({
+        event: reasoningDeltaEvent("s1", "msg_split", delta),
+      })
+      if (control.bodies.length > 0) {
+        raised = true
+        break
+      }
+    }
+    assert.ok(raised, "no suspect was raised from split deltas")
+
+    const sent = control.bodies[0] as { state: { items: string[] } }
+    assert.equal(
+      sent.state.items[0],
+      [...PHRASE_WORDS.slice(4), ...PHRASE_WORDS.slice(0, 4)].join(" "),
+    )
     await hooks.dispose?.()
   })
 

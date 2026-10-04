@@ -245,8 +245,11 @@ over and over, with no progress. The doom-loop guard in the Permission
 Assistant only sees repeated tool calls, so a spiral that never reaches a
 call runs on. This guard watches the reasoning stream instead.
 
-- A server feature subscribes to `message.part.updated` and keeps only the
+- A server feature subscribes to `message.part.delta` and keeps only the
   last 256 reasoning words per response. It checks every 128 new words.
+  Deltas carry no part type, so a part counts as reasoning only after its
+  `message.part.updated` event declares one; a provider that sends no
+  deltas is judged from that full text alone, at the end of the response.
 - A suspect is the response's final 24-word phrase appearing at least three
   times inside that window. Only a suspect pays a network call.
 - Essentials asks Jev the "stuck" question over the repeated phrase, through
@@ -263,8 +266,12 @@ call runs on. This guard watches the reasoning stream instead.
   over material you keep local.
 - One suspect is not enough to act on. A lower score, a failed call, or a
   missing credential leaves the response running. A verdict that arrives
-  after the response finished is dropped, so a natural end is never cancelled
-  after the fact.
+  after its response finished is never applied to that response. When the
+  score confirms the spiral and the same turn already streams the next
+  response, the guard cancels that live response and sends the correction.
+  When the turn is over — or a newer user turn is running — the guard
+  cancels nothing and logs `ReasoningLoopVerdictLateConfirmed`, so a spiral
+  it saw but could not stop stays visible.
 - The guard allows at most three interrupts in one user turn. Its own
   correction is not counted as a fresh turn. A fourth confirmed spiral logs
   `ReasoningLoopGuardGaveUp` and leaves the run to you.

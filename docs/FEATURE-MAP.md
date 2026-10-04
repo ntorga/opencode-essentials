@@ -221,10 +221,18 @@ Cancels a response whose reasoning repeats itself. The doom-loop guard in the
 Permission Assistant only sees repeated tool calls; this guard watches the
 reasoning stream. It keeps the last 256 reasoning words per response, checks
 every 128 new words, and treats the final 24-word phrase appearing three
-times in the window as a suspect. A suspect goes to Jev's Decisions API
+times in the window as a suspect. Streaming reasoning arrives as
+`message.part.delta` events; the guard feeds those deltas to the watcher and
+holds back a word split at a delta boundary. A provider that sends no deltas
+is judged from the full text of its `message.part.updated` event alone. A
+suspect goes to Jev's Decisions API
 through the shared classifier request; at 0.80 or higher the guard aborts the
 run and delivers a correction prompt that names the spiral. A verdict that
-arrives after the response ended is dropped. Two caps bound the guard: three
+arrives after its response ended never cancels that response: when the score
+confirms the spiral and the same turn already streams the next response, the
+guard cancels that live response; when the turn is over — or a newer user
+turn is running — it logs
+`ReasoningLoopVerdictLateConfirmed` and stops. Two caps bound the guard: three
 confirmed interrupts per user turn, and three uncleared readings on the same
 loop — abstentions, failed calls, or a missing credential — after which the
 fourth suspect is treated as a runaway regardless of the classifier, so the
@@ -240,7 +248,8 @@ it too.
 
 1. `src/server.ts` — server entry. Builds the guard's hooks with the feature's options.
 2. `src/features/reasoning-loop-guard.ts` — the shared suspect watcher tracks the
-   reasoning tail; the server subscribes to `message.part.updated`, feeds the
+   reasoning tail; the server subscribes to `message.part.delta` (streaming
+   words) and `message.part.updated` (part registration and full text), feeds the
    watcher, asks `session.abort` and delivers the correction through
    `session.promptAsync`, and spends the interrupt and abstention budgets.
 3. `src/features/permissionDecision.ts` — the shared Decisions API request,
@@ -253,7 +262,8 @@ it too.
     classifier model, shared with the Permission Assistant; the toggle file
     gates the feature at the decision point.
  6. `src/reasoning-loop-escalation.tsx` — TUI companion. It runs the same suspect
-    watcher over `message.part.updated` and, at the fourth suspect in a
+    watcher over `message.part.delta` and `message.part.updated` and, at the
+    fourth suspect in a
     response, raises the human wake-up through the attention API (toast
     fallback), logging `ReasoningLoopHumanEscalation`.
  7. `src/tui.ts` — the `/essentials` row toggles the guard at runtime.

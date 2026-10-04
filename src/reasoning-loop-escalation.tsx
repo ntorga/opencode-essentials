@@ -114,6 +114,42 @@ const tui: TuiPlugin = async (api) => {
     watcher.observe({ sessionId, messageId, partId, text: part.text })
   })
 
+  // Streaming reasoning travels as part deltas; the `updated` event only
+  // fires at a reasoning part's start and end. The delta type is missing
+  // from the SDK's event union, so the type is matched as a string and the
+  // shape is checked structurally.
+  const stopDelta = api.event.on(
+    "message.part.delta" as Parameters<typeof api.event.on>[0],
+    (event) => {
+      const properties = event.properties as {
+        sessionID?: string
+        messageID?: string
+        partID?: string
+        field?: unknown
+        delta?: unknown
+      }
+      if (properties.field !== "text") return
+      const sessionId = newSessionId(properties.sessionID)
+      const messageId = newMessageId(properties.messageID)
+      const partId = newPartId(properties.partID)
+      if (
+        !sessionId ||
+        !messageId ||
+        !partId ||
+        typeof properties.delta !== "string" ||
+        properties.delta.length === 0
+      ) {
+        return
+      }
+      watcher.observeDelta({
+        sessionId,
+        messageId,
+        partId,
+        delta: properties.delta,
+      })
+    },
+  )
+
   const stopIdle = api.event.on("session.idle", (event) => {
     const sessionId = newSessionId(event.properties.sessionID)
     if (sessionId) escalations.delete(sessionId)
@@ -121,6 +157,7 @@ const tui: TuiPlugin = async (api) => {
 
   api.lifecycle.onDispose(() => {
     stopPart()
+    stopDelta()
     stopIdle()
     escalations.clear()
   })
