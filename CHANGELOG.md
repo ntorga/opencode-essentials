@@ -1,10 +1,12 @@
 # Changelog
 
 ```log
-0.8.0 - 2026/09/28
+0.9.0 - 2026/10/04
 docs: correct comment claims and trim to the policy
 docs: align the agent-browser skill with the framework playbook
 fix: catch reasoning spirals in streaming deltas
+
+0.8.0 - 2026/09/28
 fix: close the KDE notification when the prompt answers first
 
 0.7.0 - 2026/09/28
