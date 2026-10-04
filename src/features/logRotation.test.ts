@@ -5,7 +5,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, it } from "node:test"
 import { AUDIT_RETENTION_MS, appendAuditRecordLine } from "./logRotation.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 let logDir = ""

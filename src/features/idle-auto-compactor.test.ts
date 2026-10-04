@@ -14,7 +14,7 @@ import {
 import type { IdleTimeoutMs } from "../valueObject/idleTimeoutMs.ts"
 import { idleAutoCompactorFeature } from "./idle-auto-compactor.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 const SHORT_IDLE_MS = 40

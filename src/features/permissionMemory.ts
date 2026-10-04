@@ -11,19 +11,20 @@ type MemoryEntry = {
 
 // A remembered approval is a whole request, not a bare path: the same path can
 // be safe to edit but not to read, so the permission name is part of the key.
-// The pattern list is JSON-encoded because patterns are unvalidated strings —
-// a raw newline join would let ["a","b"] and ["a\nb"] collide and authorize the
-// wrong request.
+// The code JSON-encodes the pattern list because patterns are unvalidated
+// strings — a raw newline join would let ["a","b"] and ["a\nb"] collide and
+// authorize the wrong request.
 function memoryKey(entry: MemoryEntry): string {
   return `${entry.permission}\n${JSON.stringify(entry.patterns)}`
 }
 
 // The classifier's own short-term memory. OpenCode cannot remember a single
-// file edit: its `always` reply stores the pattern the tool declares, and the
-// edit tool declares `*`. So the assistant answers a safe edit with `once` and
-// keeps the approved requests itself, letting a repeat in the same session skip
-// Jev. Entries live for the session and are bounded, so a session that ends
-// without a delete signal cannot grow the map without limit.
+// file edit: its `always` reply stores the pattern the tool declares, and
+// the edit tool declares `*`. So the assistant answers a safe edit with
+// `once` and keeps the approved requests itself; a repeat in the same
+// session then skips Jev. Entries live for the session and are bounded, so
+// a session that ends without a delete signal cannot grow the map without
+// limit.
 export type PermissionMemory = {
   recall: (entry: MemoryEntry) => boolean
   remember: (entry: MemoryEntry) => void

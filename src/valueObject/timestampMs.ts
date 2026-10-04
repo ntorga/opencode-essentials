@@ -1,6 +1,6 @@
 import type { ValidatedNumber } from "./util.ts"
 
-// Wall-clock epoch milliseconds read out of synced host state. The lower
+// Wall-clock epoch milliseconds from synced host state. The lower
 // bound is the year 2001: a genuine epoch-ms timestamp can never sit under
 // it, while a seconds-based epoch or a leaked monotonic counter would make
 // the idle clock show decades.

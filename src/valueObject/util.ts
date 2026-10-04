@@ -1,10 +1,9 @@
 declare const validatedInput: unique symbol
 
-// The brand admits no raw value: only the constructors in this package,
-// which run the token through a pattern and cast after validation, can
-// produce one. The restructure that failed is a plain alias —
-// `type SessionId = string` would accept any string the moment a caller
-// forgets the constructor.
+// The brand blocks implicit assignment: a raw value needs an explicit cast
+// to masquerade as a validated id. The restructure that failed is a plain
+// alias: `type SessionId = string` would accept any string the moment a
+// caller forgets the constructor.
 export type ValidatedString<Token extends string> = string & {
   readonly [validatedInput]: Token
 }

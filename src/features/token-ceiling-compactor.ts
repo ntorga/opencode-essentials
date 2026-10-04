@@ -108,7 +108,7 @@ async function logSummarizeResult(
 // A client call that throws — a wedged server, a rejected promise — must
 // not escape into the event fan-out, where it would skip every later
 // feature's handler. Each read maps a throw to the same failure log as an
-// error response and abandons this turn's check.
+// error response. The check for this turn is then abandoned.
 async function readTurn(tracker: CeilingTracker, sessionId: SessionId) {
   try {
     const messagesResponse = await tracker.client.session.messages({
@@ -223,11 +223,11 @@ async function runCeilingCheck(
   await logSummarizeResult(tracker.client, sessionId, summarizeResult)
 }
 
-// The settle flag is assigned synchronously before any await: two idle
-// events for one session must not both pass the guard and both run a check,
-// and the state-file read is synchronous so no window opens. The check
-// itself detaches — like the idle compactor's timer callback — because a
-// stalled server read must not hold the event fan-out for other features.
+// The code assigns the settle flag synchronously before any await. Two idle
+// events for one session must not both pass the guard and both run a check.
+// The state-file read is synchronous, so no window opens. The check itself
+// detaches — like the idle compactor's timer callback — because a stalled
+// server read must not hold the event fan-out for other features.
 async function onSessionIdle(tracker: CeilingTracker, sessionId: SessionId) {
   const existingState = tracker.sessions.get(sessionId)
   if (existingState?.isSettledThisIdlePeriod) return

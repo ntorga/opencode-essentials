@@ -35,7 +35,7 @@ import type { OpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 import { newOpenRouterModelId } from "./valueObject/openRouterModelId.ts"
 import type { PermissionReplyMode } from "./valueObject/permissionReplyMode.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 function trustedFeatureId(id: string): FeatureId {

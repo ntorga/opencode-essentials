@@ -46,7 +46,7 @@ function readAuditLines(): Record<string, unknown>[] {
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 let dataHomeTemp = ""
@@ -193,8 +193,8 @@ describe("permission audit log", () => {
     assert.equal(firstFailure, undefined)
     // A read-only file no longer blocks the write on its own: the daily
     // compaction replaces the file through a rename, which needs only a
-    // writable directory. A real failure now needs both the file unwritable
-    // and the directory unable to hold the compaction's lock and temp file.
+    // writable directory. A real failure now needs both an unwritable file
+    // and a directory that cannot hold the compaction's lock and temp file.
     const logPath = resolvePermissionAuditLogPath()
     const logDirectory = path.dirname(logPath)
     chmodSync(logPath, 0o400)

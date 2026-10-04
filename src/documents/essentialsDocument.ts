@@ -54,11 +54,10 @@ export function newDefaultEssentialsConfig(): EssentialsConfig {
   })
 }
 
-// A settings entry is one feature's whole tuning block, holding whichever
-// tunables it uses. Half-trusting it — dropping a broken field silently —
-// would revert the user's value to the default with no signal at 3am, so any
-// present-but-uninterpretable field rejects the document. A feature with no
-// stored tunables simply has no entry.
+// A settings entry is one feature's whole tuning block. Half-trusting it
+// would drop a broken field silently and revert the user's value with no
+// signal at 3am. So any present-but-uninterpretable field rejects the
+// document; a feature with no stored tunables simply has no entry.
 function newFeatureSettings(rawSettings: unknown):
   | {
       timeouts: FeatureTimeouts

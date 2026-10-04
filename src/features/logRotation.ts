@@ -15,9 +15,9 @@ import { isRecord } from "../valueObject/util.ts"
 export const AUDIT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000
 const PRUNE_LOCK_STALE_MS = 5 * 60 * 1_000
 
-// A line is kept when its recorded time is inside the retention window. The
-// format is the plugin's own, so a line without a readable time is damage,
-// not data, and the rewrite is also the repair point.
+// The code keeps a line when its recorded time sits inside the retention
+// window. The format is the plugin's own, so a line without a readable time
+// is damage, not data. The rewrite is also the repair point.
 function isLineWithinRetention(line: string, cutoffMs: number): boolean {
   let parsed: unknown
   try {
@@ -32,7 +32,7 @@ function isLineWithinRetention(line: string, cutoffMs: number): boolean {
 }
 
 // Several terminals share one audit file, so the read-prune-append runs under
-// a lock: whoever cannot take it falls back to a plain append and defers the
+// a lock. Whoever cannot take it falls back to a plain append and defers the
 // compaction, so no line is ever lost to a racing rewrite. A lock left by a
 // crashed writer is cleared once it is clearly stale.
 function acquirePruneLock(lockPath: string, nowMs: number): boolean {

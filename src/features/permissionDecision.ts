@@ -71,9 +71,9 @@ const MAX_CLASSIFIER_TOTAL_CHARS = 16_000
 
 // OpenCode splits a compound bash command into one pattern per `;`/`&&`/`|`
 // segment, so an `agent-browser eval` verification run reaches here with
-// tens of short fragments. The gate admits that shape — up to 40 patterns
-// within a 16000-character budget — and only skips when a request is too
-// large to send, so a wide command is not silently handed to the human.
+// tens of short fragments. The gate admits that shape: up to 40 patterns
+// within a 16000-character budget. It skips only a request too large to
+// send, so a wide command is not silently handed to the human.
 export function classifierQuestionFor(
   request: PermissionRequest,
 ): ClassifierQuestion | undefined {

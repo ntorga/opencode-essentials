@@ -6,10 +6,9 @@ import { newTimestampMs } from "../valueObject/timestampMs.ts"
 import { isRecord } from "../valueObject/util.ts"
 import type { StatusBarTone } from "./tone.ts"
 
-// Bands tuned so the top two tiers are reachable on ordinary providers:
-// green starts at 60 tok/s and blue at 100, grey marks the unremarkable
-// stream between 45 and 60, and the start wait turns yellow only past five
-// seconds.
+// The bands let ordinary providers reach the top two tiers. Green starts at
+// 60 tok/s and blue at 100. Grey marks the unremarkable stream between 45
+// and 60. The start wait turns yellow only past five seconds.
 const TOKEN_RATE_ERROR_TPS = 30
 const TOKEN_RATE_WARNING_TPS = 45
 const TOKEN_RATE_REGULAR_TPS = 60
@@ -21,11 +20,11 @@ const RESPONSE_WINDOW_MS = 5 * 60_000
 const RESPONSE_WINDOW_SIZE = 18
 const HEALTH_MIN_RESPONSES = 3
 
-// Five ranks, readable as the gradient of the numbers they lead: flying
-// (blue) over healthy (green) over regular (grey) over sluggish (yellow)
-// over slow (red). The verdict copies the numbers' colors: it takes the one
-// color all numbers share, or grey when they disagree — not a problem, just
-// not good.
+// Five ranks form the gradient of the numbers they lead: flying (blue) over
+// healthy (green) over regular (grey) over sluggish (yellow) over slow
+// (red). The verdict reads the numbers' colors: any red says `slow`, all
+// blue says `flying`, green or a blue-green mix says `healthy`, and all
+// yellow says `sluggish`. Any other mix stays grey `regular`.
 export type ResponseHealthLevel =
   | "flying"
   | "healthy"
@@ -96,9 +95,9 @@ function toolExecutionMs(rawState: unknown): number | undefined {
 }
 
 // The window spans the first to the last part timestamp. Tool execution is
-// cut out: those seconds hold no model output. The gaps left behind —
-// writing the next tool call, queueing, resuming after a result — are
-// generation time, so they stay in.
+// cut out: those seconds hold no model output. The gaps left behind stay in
+// — writing the next tool call, queueing, and resuming after a result are
+// generation time.
 function measureGenerationParts(
   rawParts: readonly unknown[],
 ): GenerationPartTiming {
@@ -245,11 +244,11 @@ function windowResponseTimings(
     .map((message) => measureResponseTiming(message, readParts))
 }
 
-// One tone source for the numbers and the verdict, so the verdict can
-// never disagree with the colors it leads: the rate gets its tone from the
-// thinking-inclusive average — the text-only rate measures how the model
-// splits its tokens between thinking and writing, not how fast the
-// provider streams — and the waits from the start median that paints them.
+// One tone source serves the numbers and the verdict, so the verdict can
+// never disagree with the colors it leads. The rate gets its tone from the
+// thinking-inclusive average: the text-only rate measures how the model
+// splits its tokens between thinking and writing, not how fast the provider
+// streams. The waits take theirs from the start median that paints them.
 function displayTones(readings: {
   averageGenerationTokensPerSecond: number
   medianFirstActivityLatencyMs: number | undefined
@@ -266,8 +265,8 @@ function displayTones(readings: {
 
 // A verdict needs a streak to read: fewer than HEALTH_MIN_RESPONSES
 // completed responses in the window say nothing about the provider's habit.
-// The verdict copies the numbers' colors: the shared color wins, any red
-// makes it `slow`, and a mix that agrees on nothing stays grey `regular`.
+// Any red says `slow`. A shared color keeps its rank, a blue-green mix says
+// `healthy`, and any other mix says grey `regular`.
 function resolveHealthLevel(
   tones: { rate: StatusBarTone; waits: StatusBarTone | undefined },
   responseCount: number,

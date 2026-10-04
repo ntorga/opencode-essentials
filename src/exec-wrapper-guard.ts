@@ -1,13 +1,12 @@
 /*
  * The hook has no agent identity. Specific deny and ask rules combine across
- * profiles, so one profile can block a command that another allows. OpenCode
- * still applies each profile's default rules. The hook cannot create a prompt;
- * ask rules require the user to run the inner command unwrapped.
+ * profiles. One profile can block a command that another allows. OpenCode
+ * still applies each profile's default rules. The hook cannot create a
+ * prompt; ask rules require the user to run the inner command unwrapped.
  *
  * V1 unwraps natural bash wrappers and shell -c scripts. It does not inspect
  * python -c, node -e, perl -e, awk system(), go run, make, npm run, script
- * files, runtime variable expansion, xargs, or parallel. The devbox contains
- * those execution paths.
+ * files, runtime variable expansion, xargs, or parallel.
  */
 import { readFile, stat } from "node:fs/promises"
 import path from "node:path"

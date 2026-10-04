@@ -12,7 +12,7 @@ import {
   resolveReasoningLoopAuditLogPath,
 } from "./reasoningLoopAudit.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 let dataHomeTemp = ""

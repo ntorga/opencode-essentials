@@ -1,11 +1,11 @@
-// The freedesktop notification protocol has no "activate window" concept, and
+// The freedesktop notification protocol has no "activate window" concept.
 // `notify-send` runs as a separate process that owns no window. On KDE the
-// only lever is the compositor's scripting D-Bus: load a throwaway script that
-// finds the window and calls `requestActivate`.
+// only lever is the compositor's scripting D-Bus: load a throwaway script
+// that finds the window and calls `requestActivate`.
 //
-// The window belongs to the terminal emulator, not to the OpenCode process, so
-// the script is given the whole ancestor process chain and raises the first
-// window whose owner PID appears in that chain.
+// The window belongs to the terminal emulator, not to the OpenCode process.
+// The script therefore receives the whole ancestor process chain and raises
+// the first window whose owner PID appears in that chain.
 
 import { execFile } from "node:child_process"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"

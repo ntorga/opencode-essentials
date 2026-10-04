@@ -1,8 +1,9 @@
 import type { ValidatedNumber } from "./util.ts"
 
 // Positive finite durations only. Node's timer ceiling is policy for the
-// consumers: resolveIdleTimeoutMs clamps the plugin option and
-// clampToTimerCeiling caps the state-file value, both to MAX_TIMER_DELAY_MS.
+// consumers. resolveIdleTimeoutMs clamps the plugin option to
+// MAX_TIMER_DELAY_MS. clampIdleTimeoutToTimerDelay caps the state-file
+// value the same way.
 export type IdleTimeoutMs = ValidatedNumber<"IdleTimeoutMs">
 
 export const MAX_TIMER_DELAY_MS = (2 ** 31 - 1) as IdleTimeoutMs

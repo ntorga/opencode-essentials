@@ -9,6 +9,8 @@ import { resolveEssentialsStatePath } from "./state.ts"
 let dataHomeTemp = ""
 let previousDataHome: string | undefined
 
+// Note: Setup/teardown are intentionally file-local — test independence
+// requires each file to own its preconditions, even if it duplicates code.
 beforeEach(() => {
   previousDataHome = process.env.XDG_DATA_HOME
   dataHomeTemp = mkdtempSync(path.join(tmpdir(), "essentials-auth-test-"))

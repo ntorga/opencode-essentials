@@ -23,8 +23,8 @@ export type CompletedAssistantMessage = ParsedDocument<
 
 // OpenCode hands completed assistant messages to the plugin as event
 // payloads. A message without a finished clock or without output tokens
-// cannot join the response window, so any half-interpretable payload is
-// dropped as a whole.
+// cannot join the response window. So the parser drops any
+// half-interpretable payload as a whole.
 export function newCompletedAssistantMessage(
   rawMessage: unknown,
 ): CompletedAssistantMessage | undefined {

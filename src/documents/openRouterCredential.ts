@@ -3,8 +3,9 @@ import { newOpenRouterApiKey } from "../valueObject/openRouterApiKey.ts"
 import { isRecord } from "../valueObject/util.ts"
 
 // OpenCode's shared auth store keeps one entry per provider. This document
-// owns only the OpenRouter entry: its shape decides whether a stored
-// credential can be trusted, and nothing else reads the store.
+// owns only the OpenRouter entry: its shape decides whether to trust a
+// stored credential. openRouterAuth.ts reads the store and hands the raw
+// entry here, so the shape check lives in one place.
 export type OpenRouterCredentialResolution =
   | { status: "absent" }
   | { status: "valid"; apiKey: OpenRouterApiKey }

@@ -34,7 +34,7 @@ type SessionState = {
   timer: IdleTimer | undefined
   // OpenCode runs compaction as a prompt turn, which emits its own
   // session.status busy/idle pair. The events carry no origin field, so no
-  // name or type can tell that pair from real activity; settling the period
+  // name or type can tell that pair from real activity. Settling the period
   // when the timer fires absorbs the echo. Only chat.message, which fires
   // solely on genuine prompts, reopens the period.
   isSettledThisIdlePeriod: boolean
@@ -232,11 +232,10 @@ function cancelIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
   state.timer = undefined
 }
 
-// The guard and the timer assignment must not span an await: two idle events
-// for one session could otherwise both pass the guard and both arm, and the
-// second arm would orphan the first timer. The state-file read is
-// synchronous, so the window cannot open; only the failure log awaits, and
-// it runs after the assignment.
+// The guard and the timer assignment must not span an await: two idle
+// events for one session could otherwise both arm, and the second arm would
+// orphan the first timer. The state-file read is synchronous, so no window
+// opens; only the failure log awaits, after the assignment.
 async function armIdleTimer(tracker: IdleTracker, sessionId: SessionId) {
   const state = ensureSessionState(tracker, sessionId)
   if (state.timer || state.isSettledThisIdlePeriod) return

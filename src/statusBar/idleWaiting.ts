@@ -123,11 +123,11 @@ function resolveIdleClockColor(
   return "muted"
 }
 
-// The host keeps status entries only while a session is busy or retrying:
-// its store is seeded from the server's map, idle entries are deleted, and
+// The host keeps status entries only while a session is busy or retrying.
+// It seeds its store from the server's map and deletes idle entries, and
 // upstream renders a missing status as idle too. So a missing status means
-// the session is idle — including one reopened from history. The line is
-// hidden while busy or retrying, and while no completed assistant turn
+// the session is idle — including one reopened from history. The code hides
+// the line while busy or retrying, and while no completed assistant turn
 // provides an anchor.
 export function resolveIdleClockLine(
   status: IdleClockStatus | undefined,

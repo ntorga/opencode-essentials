@@ -8,7 +8,7 @@ import { FEATURES } from "./features/registry.ts"
 import { readEssentialsConfig, resolveEssentialsStatePath } from "./state.ts"
 import tuiEntry from "./tui.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 type SelectProps = {

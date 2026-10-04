@@ -9,7 +9,7 @@ import suite from "./server.ts"
 import { writeFeatureEnabled } from "./state.ts"
 import { newFeatureId } from "./valueObject/featureId.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 const SHORT_IDLE_MS = 40

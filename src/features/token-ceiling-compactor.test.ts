@@ -13,7 +13,7 @@ import {
 import type { ContextTokens } from "../valueObject/contextTokens.ts"
 import { tokenCeilingCompactorFeature } from "./token-ceiling-compactor.ts"
 
-// Note: Setup/teardown are intentionally inline — test independence
+// Note: Setup/teardown are intentionally file-local — test independence
 // requires each file to own its preconditions, even if it duplicates code.
 
 const CEILING_UNDER_TEST = 1000 as ContextTokens
@@ -178,7 +178,8 @@ async function startCeiling(
 }
 
 // The idle handler detaches the check (it must not stall the event
-// fan-out), so a test flush needs one macrotask boundary after the event.
+// fan-out). A test flush therefore needs one macrotask boundary after the
+// event.
 async function idleOnce(
   hooks: Awaited<ReturnType<typeof tokenCeilingCompactorFeature.buildHooks>>,
 ) {

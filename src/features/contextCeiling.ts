@@ -7,7 +7,6 @@ import type { ProviderId } from "../valueObject/providerId.ts"
 import { newProviderId } from "../valueObject/providerId.ts"
 import { isRecord } from "../valueObject/util.ts"
 
-// The measured context of the newest answer, ready for ceiling comparison.
 export type CeilingTurn = {
   model: ModelRef
   usageTokens: number
@@ -57,13 +56,12 @@ function readModelPair(rawInfo: Record<string, unknown>): ModelRef | undefined {
 }
 
 // The newest completed, non-summary assistant message is the measurement
-// point: its usage describes the context that produced it, and its model is
-// the model that will run the next turn. A summary turn rewrites the
-// context, so measuring it would compare a rewritten number against the
-// ceiling that triggered the rewrite. When that message carries no usable
-// model or no finite token numbers there is no answer to act on, so the
-// whole check is abandoned rather than falling back to an older turn whose
-// model may no longer be the session's.
+// point: its usage describes the context that produced it, and its model
+// runs the next turn. Measuring a summary turn would compare a rewritten
+// number against the ceiling that triggered the rewrite. Without a usable
+// model or finite token numbers there is no answer to act on; the check is
+// abandoned rather than falling back to an older turn whose model may no
+// longer be the session's.
 export function resolveCeilingTurn(
   rawMessages: unknown,
 ): CeilingTurn | undefined {
@@ -116,8 +114,8 @@ const MIN_PLAUSIBLE_MODEL_WINDOW = 1024
 
 // The small-context guard: a ceiling above the model's window is
 // meaningless, so the window wins. A missing, zero, or implausibly small
-// limit is treated as unknown — the host itself treats context 0 as "never
-// overflow on its own" — and the requested ceiling stays in play.
+// limit counts as unknown. The host itself treats context 0 as "never
+// overflow on its own". The requested ceiling stays in play.
 export function clampCeilingToModel(
   requested: ContextTokens,
   contextLimit: number | undefined,

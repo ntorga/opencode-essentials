@@ -1,8 +1,8 @@
 import type { ValidatedNumber } from "./util.ts"
 
-// A token count used as a compaction ceiling. The presets in the dialog stop
-// at 1M; the ceiling of this type leaves headroom for a hand-edited state
-// file so such an edit is stored faithfully instead of rejected or clamped.
+// A token count used as a compaction ceiling. The dialog presets stop at
+// 1M; the type ceiling sits higher, so a hand-edited state file still
+// loads.
 export type ContextTokens = ValidatedNumber<"ContextTokens">
 
 export const MAX_TOKEN_CEILING = 2_000_000 as ContextTokens

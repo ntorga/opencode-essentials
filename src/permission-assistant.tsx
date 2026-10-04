@@ -6,7 +6,10 @@ import type {
   TuiPluginModule,
 } from "@opencode-ai/plugin/tui"
 import { shouldRememberApproval } from "./features/autoAllowPolicy.ts"
-import { buildPermissionNotificationArguments, parseNotificationOutput } from "./features/notificationText.ts"
+import {
+  buildPermissionNotificationArguments,
+  parseNotificationOutput,
+} from "./features/notificationText.ts"
 import { permissionAssistantFeature } from "./features/permission-assistant.ts"
 import {
   auditPermissionClassification,
@@ -153,10 +156,10 @@ function stopPermissionNotification(permission: PendingPermission): void {
   notification.kill()
 }
 
-// The notification is owned by the desktop notification server, not by the
-// notify-send process, so killing the process leaves the popup on screen.
-// Closing it requires the notification id, which notify-send reports on
-// stdout when started with --print-id.
+// The desktop notification server owns the notification, not the notify-send
+// process. Killing the process leaves the popup on screen. Closing it
+// requires the notification id, which notify-send reports on stdout when
+// started with --print-id.
 function closeNotification(notificationId: number | undefined): void {
   if (notificationId === undefined) return
   const runBusctl = promisify(execFile)
@@ -301,10 +304,10 @@ function showLinuxPermissionNotification(
   })
 }
 
-// A "Go to window" click raises the terminal that owns the pending request and
-// answers nothing: the user asked to see the prompt, not to reply to it. The
-// notification is gone once notify-send exits; OpenCode's own prompt stays
-// open in the now-visible terminal.
+// A "Go to window" click raises the terminal that owns the pending request
+// and answers nothing: the user asked to see the prompt, not to reply to it.
+// The notification is gone once notify-send exits. OpenCode's own prompt
+// stays open in the now-visible terminal.
 async function raisePermissionWindow(
   api: TuiPluginApi,
   permission: PendingPermission,
@@ -365,9 +368,9 @@ async function answerOrNotifyPermission(
   }
 
   // The remember preference is read once here and reused for both the recall
-  // gate and the post-verdict remember, so flipping the setting off in
-  // /essentials takes effect immediately: a disabled memory stops answering
-  // cached requests as well as storing new ones.
+  // gate and the post-verdict remember. Flipping the setting off in
+  // /essentials therefore takes effect immediately: a disabled memory stops
+  // answering cached requests as well as storing new ones.
   const config = readPermissionAssistantConfig(api)
   if (!config) return
   const preferredMode = resolveEffectiveAutoAllowReply(
